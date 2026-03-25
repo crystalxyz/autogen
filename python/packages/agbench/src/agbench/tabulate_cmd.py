@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import re
 import sys
@@ -8,6 +9,7 @@ import pandas as pd
 import tabulate as tb
 
 from .load_module import load_module
+from .live_results import load_live_results
 
 # Figure out where everything is
 SCRIPT_PATH = os.path.realpath(__file__)
@@ -26,7 +28,7 @@ COMPLETED_STRINGS = [
 
 EXCLUDE_DIR_NAMES = ["__pycache__"]
 
-TIMER_REGEX = r"RUNTIME:\s*([\d.]+) !#!#"
+TIMER_REGEX = r"AgentChat execution time:\s*([\d.]+)(?:\s*seconds)?(?:\s*!#!#)?"
 
 
 def find_tabulate_module(search_dir: str, stop_dir: Optional[str] = None) -> Optional[str]:
@@ -103,14 +105,117 @@ def default_timer(instance_dir: str, timer_regex: str = TIMER_REGEX) -> Optional
         return None
 
 
+def default_turns(instance_dir: str) -> Optional[int]:
+    console_log = os.path.join(instance_dir, "console_log.txt")
+    if os.path.isfile(console_log):
+        with open(console_log, "rt") as fh:
+            content = fh.read()
+            count = content.count("TextMessage")
+            if count == 0 or count == 1:
+                return None
+            return count - 1
+    else:
+        return None
+
+
+def default_runtimes(instance_dir: str) -> Dict[str, List[float]]:
+    console_log = os.path.join(instance_dir, "console_log.txt")
+    if not os.path.isfile(console_log):
+        return {}
+    with open(console_log, "rt") as fh:
+        content = fh.read()
+    matches = re.findall(r"\[runtime\]\s*name=([^\s]+)\s+seconds=([\d.]+)", content)
+    runtimes: Dict[str, List[float]] = {}
+    for name, seconds in matches:
+        runtimes.setdefault(name, []).append(float(seconds))
+    return runtimes
+
+
 ScorerFunc = Callable[[str], Optional[bool]]
 TimerFunc = Callable[[str], Optional[float]]
+TurnsFunc = Callable[[str], Optional[int]]
+RuntimesFunc = Callable[[str], Dict[str, List[float]]]
+
+
+def show_live_results(runlogs: str) -> bool:
+    """
+    Show live results from result.json if available.
+
+    Args:
+        runlogs: Path to the results directory
+
+    Returns:
+        True if live results were shown, False otherwise
+    """
+    live_results = load_live_results(runlogs)
+    if live_results is None:
+        return False
+
+    print("\n" + "=" * 60)
+    print("LIVE RESULTS (from result.json)")
+    print("=" * 60)
+
+    # Show run status
+    status = live_results.get("status", "unknown")
+    scenario_name = live_results.get("scenario_name", "unknown")
+    print(f"\nScenario: {scenario_name}")
+    print(f"Status: {status}")
+
+    # Show timing
+    start_time = live_results.get("start_time")
+    end_time = live_results.get("end_time")
+    if start_time:
+        print(f"Start time: {start_time}")
+    if end_time:
+        print(f"End time: {end_time}")
+
+    # Show stats
+    stats = live_results.get("stats", {})
+    if stats:
+        print("\nProgress:")
+        print(f"  Total repetitions:      {stats.get('total_repetitions', 0)}")
+        print(f"  Completed repetitions:  {stats.get('completed_repetitions', 0)}")
+        print(f"  Successful repetitions: {stats.get('successful_repetitions', 0)}")
+        print(f"  Failed repetitions:     {stats.get('failed_repetitions', 0)}")
+        print(f"  Running repetitions:    {stats.get('running_repetitions', 0)}")
+        print(f"  Success rate:           {stats.get('success_rate', 0):.1%}")
+        print(f"  Total elapsed time:     {stats.get('total_elapsed_time', 0):.1f}s")
+
+    # Show per-task summary if available
+    tasks = live_results.get("tasks", {})
+    if tasks:
+        print(f"\nTasks: {len(tasks)}")
+
+        # Build a summary table
+        task_summaries: List[Dict[str, Any]] = []
+        for task_id, task_data in sorted(tasks.items()):
+            repetitions = task_data.get("repetitions", {})
+            completed = sum(1 for r in repetitions.values() if r.get("status") == "completed")
+            successful = sum(1 for r in repetitions.values() if r.get("success") is True)
+            running = sum(1 for r in repetitions.values() if r.get("status") == "running")
+
+            task_summaries.append({
+                "Task ID": task_id,
+                "Repetitions": len(repetitions),
+                "Completed": completed,
+                "Successful": successful,
+                "Running": running,
+            })
+
+        if task_summaries:
+            df = pd.DataFrame(task_summaries)
+            print("\n" + tb.tabulate(df, headers="keys", tablefmt="simple", showindex=False))  # type: ignore
+
+    print("\n" + "=" * 60 + "\n")
+    return True
 
 
 def default_tabulate(
     args: List[str],
     scorer: ScorerFunc = default_scorer,
     timer: TimerFunc = default_timer,
+    turns: TurnsFunc = default_turns,
+    runtimes: RuntimesFunc = default_runtimes,
     exclude_dir_names: List[str] = EXCLUDE_DIR_NAMES,
 ) -> None:
     invocation_cmd = args[0]
@@ -142,14 +247,21 @@ def default_tabulate(
     parsed_args = parser.parse_args(args)
     runlogs: str = parsed_args.runlogs
 
+    # Check for live results first (shows partial progress for in-progress runs)
+    has_live_results = show_live_results(runlogs)
+
     all_results: List[Dict[str, Any]] = list()
-    max_instances = 0
+    max_instances: Optional[int] = None
+    runtime_names: set[str] = set()
+
+    # Skip non-directory entries and result.json
+    exclude_files = ["result.json", "result.json.tmp"]
 
     for task_id in sorted(
         os.listdir(runlogs),
         key=lambda s: os.path.getmtime(os.path.join(runlogs, s)),
     ):
-        if task_id in exclude_dir_names:
+        if task_id in exclude_dir_names or task_id in exclude_files:
             continue
 
         task_path = os.path.join(runlogs, task_id)
@@ -166,16 +278,27 @@ def default_tabulate(
             key=lambda s: os.path.getmtime(os.path.join(task_path, s)),
         )
         instances = [int(d) for d in instance_dirs if d.isdigit()]
+        if not instances:
+            continue
 
         for instance in instances:
             instance_dir = os.path.join(task_path, str(instance))
             results[f"Trial {instance} Success"] = scorer(instance_dir)
             results[f"Trial {instance} Time"] = timer(instance_dir)
+            results[f"Trial {instance} Turns"] = turns(instance_dir)
+            instance_runtimes = runtimes(instance_dir)
+            for name, values in instance_runtimes.items():
+                runtime_names.add(name)
+                results[f"Trial {instance} [{name}] runtime"] = ", ".join(f"{v:.6f}" for v in values)
 
-        max_instances = max(instances)
+        max_instances = max(instances) if max_instances is None else max(max_instances, max(instances))
 
         # Buffer the results
         all_results.append(results)
+
+    if not all_results or max_instances is None:
+        sys.stderr.write("No completed instances found to tabulate.\n\n")
+        return
 
     num_instances = max_instances + 1
 
@@ -186,6 +309,12 @@ def default_tabulate(
                 result[f"Trial {i} Success"] = None
             if f"Trial {i} Time" not in result:
                 result[f"Trial {i} Time"] = None
+            if f"Trial {i} Turns" not in result:
+                result[f"Trial {i} Turns"] = None
+            for name in runtime_names:
+                key = f"Trial {i} [{name}] runtime"
+                if key not in result:
+                    result[key] = None
 
     # Create dataframe from results.
     df = pd.DataFrame(all_results)
@@ -229,6 +358,9 @@ def default_tabulate(
         total_times = df[time_columns].sum(axis=0, skipna=True)  # type: ignore
         # Calculate the average time of non-null values
         avg_times = df[time_columns].mean(axis=0, skipna=True)  # type: ignore
+        turns_columns = ["Trial " + str(i) + " Turns" for i in range(num_instances)]  # type: ignore
+        total_turns = df[turns_columns].sum(axis=0, skipna=True)  # type: ignore
+        avg_turns = df[turns_columns].mean(axis=0, skipna=True)  # type: ignore
 
         def _list(series: Any) -> List[Any]:
             # If iteraable, convert to list
@@ -248,6 +380,8 @@ def default_tabulate(
                 "Average Success Rate": _list(avg_success_rates),  # type: ignore
                 "Average Time": _list(avg_times),  # type: ignore
                 "Total Time": _list(total_times),  # type: ignore
+                "Average Turns": _list(avg_turns),  # type: ignore
+                "Total Turns": _list(total_turns),  # type: ignore
             },
             index=[f"Trial {i}" for i in range(num_instances)],
         )

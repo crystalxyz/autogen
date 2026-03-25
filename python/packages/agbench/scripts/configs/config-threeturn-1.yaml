@@ -1,0 +1,47 @@
+# Three-turn benchmark configuration
+# Turn 1: qwen3-0.6b nothink (port 30011)
+# Turn 2: qwen3-1.7b nothink (port 30012)
+# Turn 3: qwen3-4b nothink (port 30013)
+
+servers:
+  - model: "Qwen/Qwen3-0.6B"
+    port: 30011
+    tp: 1
+    mem_fraction: 0.8
+    device: 0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+  - model: "Qwen/Qwen3-1.7B"
+    port: 30012
+    tp: 1
+    mem_fraction: 0.8
+    device: 1
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+  - model: "Qwen/Qwen3-4B"
+    port: 30013
+    tp: 1
+    mem_fraction: 0.8
+    device: 2
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+benchmarks:
+  - name: "humaneval_threeturn_0.6bnt_1.7bnt_4bnt"
+    scenario_file: "benchmarks/HumanEval/Tasks/human_eval_AgentChatCopyNoCtx.jsonl"
+    server_port: 30011
+    config_template: "scripts/config-threeturn-template.yaml"
+    server_port_map:
+      model_config_turn1: 30011
+      model_config_turn2: 30012
+      model_config_turn3: 30013
+    repeat: 3
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

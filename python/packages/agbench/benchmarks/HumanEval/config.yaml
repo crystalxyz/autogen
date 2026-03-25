@@ -13,6 +13,7 @@ model_config:
     model: gpt-4o
 
 
+
 ##############################
 # Ollama model configuration #
 ##############################

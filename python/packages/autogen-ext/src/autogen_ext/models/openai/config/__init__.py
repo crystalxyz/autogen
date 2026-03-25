@@ -40,6 +40,7 @@ class CreateArguments(TypedDict, total=False):
     frequency_penalty: Optional[float]
     logit_bias: Optional[Dict[str, int]]
     max_tokens: Optional[int]
+    min_tokens: Optional[int]
     n: Optional[int]
     presence_penalty: Optional[float]
     response_format: ResponseFormat
@@ -57,6 +58,7 @@ class CreateArguments(TypedDict, total=False):
     - 'low': Faster responses with less reasoning
     - 'medium': Balanced reasoning and speed
     - 'high': More thorough reasoning, may take longer"""
+    extra_body: Optional[Dict[str, object]]
 
 
 AsyncAzureADTokenProvider = Callable[[], Union[str, Awaitable[str]]]
@@ -96,6 +98,7 @@ class CreateArgumentsConfigModel(BaseModel):
     frequency_penalty: float | None = None
     logit_bias: Dict[str, int] | None = None
     max_tokens: int | None = None
+    min_tokens: int | None = None
     n: int | None = None
     presence_penalty: float | None = None
     response_format: ResponseFormat | None = None
@@ -108,6 +111,10 @@ class CreateArgumentsConfigModel(BaseModel):
     parallel_tool_calls: bool | None = None
     # Controls the amount of effort the model uses for reasoning (reasoning models only)
     reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
+    extra_body: Dict[str, object] | None = None
+    """Extra body parameters to pass to the API request. Useful for provider-specific
+    parameters not covered by the standard OpenAI API, e.g., chat_template_kwargs
+    for SGLang to control Qwen3 thinking mode."""
 
 
 class BaseOpenAIClientConfigurationConfigModel(CreateArgumentsConfigModel):

@@ -20,13 +20,16 @@ classifiers = [
 
 dependencies = [
     "openai",
-    "docker",
     "huggingface_hub",
     "tabulate",
     "azure-identity",
     "pandas",
     "scipy"
 ]
+
+[project.optional-dependencies]
+docker = ["docker"]
+streaming = ["rich>=13.0.0"]
 
 [dependency-groups]
 dev = [

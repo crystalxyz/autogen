@@ -1,3 +1,16 @@
+# Environment / secrets
+.env
+
+# Agentic project-specific ignores
+python/packages/agbench/Results
+
+# Large data/report files
+python/packages/agbench/reports/csv/logprobs_raw_*.csv
+python/packages/agbench/reports/csv/logprobs_1.7b_think_raw.csv
+python/packages/agbench/reports/*.png
+python/packages/agbench/kvcache-study/cka_similarity_cross_model.ipynb
+
+# Original
 .docusaurus/
 node_modules/
 # Project

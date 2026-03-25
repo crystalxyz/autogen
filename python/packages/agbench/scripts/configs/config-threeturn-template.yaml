@@ -1,0 +1,67 @@
+# Config template for three-turn AgentChatCopyNoCtx benchmark
+# generate_agbench_config will update base_url/extra_body via server_port_map.
+
+# Placeholder (not used by AgentChatCopyNoCtx, but needed by generate_agbench_config)
+model_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-0.6b
+    base_url: http://0.0.0.0:30011/v1
+    api_key: EMPTY
+
+# Turn 1: qwen3-0.6b nothink
+model_config_turn1:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-0.6b
+    base_url: http://0.0.0.0:30011/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: qwen3
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+# Turn 2: qwen3-1.7b nothink
+model_config_turn2:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-1.7b
+    base_url: http://0.0.0.0:30012/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: qwen3
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+# Turn 3: qwen3-4b nothink
+model_config_turn3:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-4b
+    base_url: http://0.0.0.0:30013/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: qwen3
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false

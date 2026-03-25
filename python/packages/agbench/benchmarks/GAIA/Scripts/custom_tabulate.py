@@ -143,14 +143,17 @@ def scorer(instance_dir):
     with open(console_log_file, "rt") as fh:
         console_log = fh.read()
 
-        final_answer = None 
-        m = re.search(r"FINAL ANSWER:(.*?)\n", console_log, re.DOTALL)
-        if m:
-            final_answer = m.group(1).strip()
+        final_answer = None
+        # Use findall + take last match: the console log may contain serialized
+        # chat history with system-prompt instructions that also include
+        # "FINAL ANSWER" text.  The agent's real answer is always the last one.
+        matches = re.findall(r"FINAL ANSWER:(.*?)\n", console_log, re.DOTALL)
+        if matches:
+            final_answer = matches[-1].strip()
 
-        # Missing the final answer line
+        # Missing the final answer line — treat as failure
         if final_answer is None:
-            return None
+            return False
 
         # Return true if they are equal after normalization
         # return in_house_question_scorer(final_answer, expected_answer)

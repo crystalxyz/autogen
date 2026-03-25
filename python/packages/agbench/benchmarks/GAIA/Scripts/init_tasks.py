@@ -8,6 +8,7 @@ import os
 import re
 import sys
 
+import pandas as pd
 from huggingface_hub import snapshot_download
 
 SCRIPT_PATH = os.path.realpath(__file__)
@@ -83,23 +84,23 @@ def main():
     if not os.path.isdir(gaia_validation_files) or not os.path.isdir(gaia_test_files):
         sys.exit(f"Error: '{REPO_DIR}' does not appear to be a copy of the GAIA repository.")
 
-    # Load the GAIA data
+    # Load the GAIA data (now distributed as parquet)
     gaia_validation_tasks = [[], [], []]
-    with open(os.path.join(gaia_validation_files, "metadata.jsonl")) as fh:
-        for line in fh:
-            data = json.loads(line)
-            gaia_validation_tasks[data["Level"] - 1].append(data)
+    df = pd.read_parquet(os.path.join(gaia_validation_files, "metadata.parquet"))
+    for _, row in df.iterrows():
+        data = row.to_dict()
+        gaia_validation_tasks[int(data["Level"]) - 1].append(data)
 
     gaia_test_tasks = [[], [], []]
-    with open(os.path.join(gaia_test_files, "metadata.jsonl")) as fh:
-        for line in fh:
-            data = json.loads(line)
+    df = pd.read_parquet(os.path.join(gaia_test_files, "metadata.parquet"))
+    for _, row in df.iterrows():
+        data = row.to_dict()
 
-            # A welcome message -- not a real task
-            if data["task_id"] == "0-0-0-0-0":
-                continue
+        # A welcome message -- not a real task
+        if data["task_id"] == "0-0-0-0-0":
+            continue
 
-            gaia_test_tasks[data["Level"] - 1].append(data)
+        gaia_test_tasks[int(data["Level"]) - 1].append(data)
 
     # list all directories in the Templates directory
     # and populate a dictionary with the name and path

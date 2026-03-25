@@ -1,0 +1,61 @@
+    Task Id        Trial 0 Success      Trial 0 Time
+--  -------------  -----------------  --------------
+ 0  HumanEval_107  True                          138
+ 1  HumanEval_22   True                          114
+ 2  HumanEval_43   True                          107
+ 3  HumanEval_88   True                           90
+ 4  HumanEval_14   True                           75
+ 5  HumanEval_157  True                          123
+ 6  HumanEval_141  False                         318
+ 7  HumanEval_158  True                          149
+ 8  HumanEval_57   True                          157
+ 9  HumanEval_154  True                          222
+10  HumanEval_155  True                           88
+11  HumanEval_93   False                         301
+12  HumanEval_163  False                         283
+13  HumanEval_137  True                          166
+14  HumanEval_143  True                          136
+15  HumanEval_13   True                          111
+16  HumanEval_49   True                          115
+17  HumanEval_95   True                          129
+18  HumanEval_132  False                         600
+19  HumanEval_121  True                           81
+20  HumanEval_25   False                         384
+21  HumanEval_133  True                          111
+22  HumanEval_12   True                           88
+23  HumanEval_15   True                           69
+24  HumanEval_104  True                           90
+25  HumanEval_124  True                          248
+26  HumanEval_48   True                           86
+27  HumanEval_74   True                          133
+28  HumanEval_83   True                          152
+29  HumanEval_118  True                          166
+30  HumanEval_47   True                          174
+31  HumanEval_96   True                          119
+32  HumanEval_152  True                           34
+33  HumanEval_103  True                           62
+34  HumanEval_24   True                           77
+35  HumanEval_126  False                         184
+36  HumanEval_105  True                           74
+37  HumanEval_149  True                           78
+38  HumanEval_86   True                          120
+39  HumanEval_68   True                           79
+40  HumanEval_131  True                          206
+41  HumanEval_99   True                           69
+42  HumanEval_7    True                           37
+43  HumanEval_41   True                           30
+44  HumanEval_27   True                           25
+45  HumanEval_38   True                           89
+46  HumanEval_151  True                           80
+47  HumanEval_115  True                           52
+48  HumanEval_87   True                           33
+49  HumanEval_79   True                           22
+
+Summary Statistics
+
+           Successes    Failures    Missing    Total    Average Success Rate    Average Time    Total Time
+-------  -----------  ----------  ---------  -------  ----------------------  --------------  ------------
+Trial 0           44           6          0       50                    0.88          133.48          6674
+                    At Least One Success    All Successes
+----------------  ----------------------  ---------------
+Trial Aggregated                    0.88             0.88

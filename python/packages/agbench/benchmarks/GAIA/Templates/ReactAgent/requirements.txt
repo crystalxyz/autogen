@@ -1,0 +1,9 @@
+tiktoken
+pyyaml
+requests
+beautifulsoup4
+markitdown
+ddgs
+/autogen_python/packages/autogen-core
+/autogen_python/packages/autogen-ext[openai]
+/autogen_python/packages/autogen-agentchat

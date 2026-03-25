@@ -1,0 +1,34 @@
+
+# Two-turn benchmark configuration
+# Turn 1: 1.7t (port 31051)
+# Turn 2: 4nt (port 31052)
+
+servers:
+- model: Qwen/Qwen3-1.7B
+  port: 31051
+  tp: 1
+  mem_fraction: 0.95
+  device: 0
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+- model: Qwen/Qwen3-4B
+  port: 31052
+  tp: 1
+  mem_fraction: 0.95
+  device: 1
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+benchmarks:
+- name: humaneval_twoturn_1.7b_4b
+  scenario_file: benchmarks/HumanEval/Tasks/human_eval_AgentChatCopyNoCtx.jsonl
+  server_port: 31051
+  config_template: scripts/configs/config-twoturn-template.yaml
+  server_port_map:
+    model_config_turn1: 31051
+    model_config_turn2: 31052
+  repeat: 2
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

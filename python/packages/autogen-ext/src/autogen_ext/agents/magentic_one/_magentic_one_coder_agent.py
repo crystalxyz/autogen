@@ -38,4 +38,5 @@ class MagenticOneCoderAgent(AssistantAgent):
             model_client,
             description=MAGENTIC_ONE_CODER_DESCRIPTION,
             system_message=MAGENTIC_ONE_CODER_SYSTEM_MESSAGE,
+            **kwargs,  # Pass through all kwargs including model_client_stream
         )

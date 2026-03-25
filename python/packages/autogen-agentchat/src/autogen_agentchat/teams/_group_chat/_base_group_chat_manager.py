@@ -1,4 +1,5 @@
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from typing import Any, List, Sequence
 
@@ -82,6 +83,7 @@ class BaseGroupChatManager(SequentialRoutedAgent, ABC):
         self._message_factory = message_factory
         self._emit_team_events = emit_team_events
         self._active_speakers: List[str] = []
+        self._speaker_start_times: dict[str, float] = {}
 
     @rpc
     async def handle_start(self, message: GroupChatStart, ctx: MessageContext) -> None:
@@ -151,6 +153,10 @@ class BaseGroupChatManager(SequentialRoutedAgent, ABC):
 
             # Remove the agent from the active speakers list.
             self._active_speakers.remove(message.name)
+            start_time = self._speaker_start_times.pop(message.name, None)
+            if start_time is not None:
+                elapsed = time.perf_counter() - start_time
+                print(f"[runtime] name={message.name} seconds={elapsed:.6f}")
             if len(self._active_speakers) > 0:
                 # If there are still active speakers, return without doing anything.
                 return
@@ -191,6 +197,7 @@ class BaseGroupChatManager(SequentialRoutedAgent, ABC):
                 cancellation_token=cancellation_token,
             )
             self._active_speakers.append(speaker_name)
+            self._speaker_start_times[speaker_name] = time.perf_counter()
 
     async def _apply_termination_condition(
         self, delta: Sequence[BaseAgentEvent | BaseChatMessage], increment_turn_count: bool = False
@@ -273,6 +280,7 @@ class BaseGroupChatManager(SequentialRoutedAgent, ABC):
     async def handle_reset(self, message: GroupChatReset, ctx: MessageContext) -> None:
         """Reset the group chat manager. Calling :meth:`reset` to reset the group chat manager
         and clear the message thread."""
+        self._speaker_start_times.clear()
         await self.reset()
 
     @rpc

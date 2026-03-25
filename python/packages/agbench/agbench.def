@@ -1,0 +1,37 @@
+Bootstrap: docker
+From: python:3.10-slim
+
+%post
+    # Update and install minimal system dependencies
+    apt-get update && apt-get install -y \
+        git \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Upgrade pip
+    pip install --upgrade pip setuptools wheel
+
+    # Install all required packages for autogen and AGBench
+    # tiktoken has pre-built wheels for x86_64 Linux, no Rust needed!
+    pip install \
+        tiktoken \
+        openai \
+        httpx \
+        aiohttp \
+        requests \
+        packaging
+    
+    # Install dependencies of HumanEval and SWEBench
+    pip install \
+        pyyaml \
+        datasets \
+        autogen-agentchat \
+        autogen-core \
+        autogen-ext[openai,magentic-one]
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONUNBUFFERED=1
+
+%runscript
+    exec python "$@"

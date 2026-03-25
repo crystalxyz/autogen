@@ -1,0 +1,75 @@
+# Example config for RoutedAgentChat template.
+# The router picks one of the model_configs to handle the task.
+
+router_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    api_key: EMPTY
+    base_url: http://0.0.0.0:40001/v1
+    model: Qwen3-0.6B
+    model_info:
+      family: Qwen
+      function_calling: true
+      json_output: true
+      structured_output: true
+      vision: false
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+    stream_options:
+      include_usage: true
+
+model_configs:
+  "0.6b":
+    provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+    config:
+      api_key: EMPTY
+      base_url: http://0.0.0.0:40001/v1
+      model: Qwen3-0.6B
+      model_info:
+        family: Qwen
+        function_calling: true
+        json_output: true
+        structured_output: true
+        vision: false
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+      stream_options:
+        include_usage: true
+
+  "1.7b":
+    provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+    config:
+      api_key: EMPTY
+      base_url: http://0.0.0.0:40002/v1
+      model: Qwen3-1.7B
+      model_info:
+        family: Qwen
+        function_calling: true
+        json_output: true
+        structured_output: true
+        vision: false
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+      stream_options:
+        include_usage: true
+
+  "4b":
+    provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+    config:
+      api_key: EMPTY
+      base_url: http://0.0.0.0:40003/v1
+      model: Qwen3-4B
+      model_info:
+        family: Qwen
+        function_calling: true
+        json_output: true
+        structured_output: true
+        vision: false
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+      stream_options:
+        include_usage: true

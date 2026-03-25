@@ -6,23 +6,46 @@ import os
 import pathlib
 import random
 import re
-import shutil
-import stat
-import subprocess
 import sys
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from multiprocessing import Pool
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-import docker
 import yaml
 from azure.core.exceptions import ClientAuthenticationError
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-from docker.errors import APIError, DockerException, ImageNotFound
-from typing_extensions import TypedDict
 
 from .version import __version__
+from .apptainer_instance import ApptainerInstance
+from .scenario_utils import (
+    discover_scenario_files,
+    expand_scenario,
+    find_autogen_repo,
+    get_scenario_env,
+    get_scenario_name_and_dir,
+    mkdir_p,
+    prepare_apptainer_binds,
+    split_jsonl,
+    ScenarioInstance,
+)
+from .execution import run_scenario_natively, run_scenario_in_apptainer
+from .workload_executor import (
+    create_task_runner,
+    execute_with_poisson_rate,
+    prepare_task_list,
+)
+from .hooks import Event, EventType, get_hook_manager
+from .load_module import load_module
+from .tabulate_cmd import find_tabulate_module
+
+DOCKER_AVAILABLE = False
+docker = None  # type: ignore
+APIError = Exception  # type: ignore
+DockerException = Exception  # type: ignore
+ImageNotFound = Exception  # type: ignore
 
 # Figure out where everything is
 SCRIPT_PATH = os.path.realpath(__file__)
@@ -31,7 +54,6 @@ SCRIPT_DIR = os.path.dirname(SCRIPT_PATH)
 
 TASK_TIMEOUT = 60 * 120  # 120 minutes
 
-BASE_TEMPLATE_PATH = os.path.join(SCRIPT_DIR, "template")
 RESOURCES_PATH = os.path.join(SCRIPT_DIR, "res")
 
 # What platform are we running?
@@ -41,19 +63,155 @@ IS_WIN32 = sys.platform == "win32"
 # Do not use this field to specify the name of an existing image (e.g., on Dockerhub)
 DEFAULT_DOCKER_IMAGE_TAG = "agbench"
 
-DEFAULT_ENV_FILE_JSON = "ENV.json"
-DEFAULT_ENV_FILE_YAML = "ENV.yaml"
-DEFAULT_CONFIG_YAML = "config.yaml"
-
 # Get a random number generator for subsampling
 subsample_rng = random.Random(425)
 
+# Success string patterns for checking scenario completion
+SUCCESS_STRINGS = [
+    "ALL TESTS PASSED !#!#",
+]
 
-class ScenarioInstance(TypedDict):
-    id: str
-    template: Union[str, List[Union[str, List[str]]]]
-    substitutions: Dict[str, Dict[str, str]]
-    values: Dict[str, Dict[str, str]]
+COMPLETED_STRINGS = [
+    "SCENARIO.PY COMPLETE !#!#",
+]
+
+
+def discover_scorer(scenario_dir: str) -> Optional[Callable[[str], Optional[bool]]]:
+    """
+    Discover a custom scorer function from the benchmark's custom_tabulate.py.
+
+    Searches scenario_dir and walks up to its parent looking for custom_tabulate.py
+    (or Scripts/custom_tabulate.py). This handles the case where scenario_dir points
+    to a subdirectory like Tasks/ while custom_tabulate.py lives in a sibling
+    Scripts/ directory.
+
+    Args:
+        scenario_dir: Directory containing the scenario (e.g. benchmarks/GAIA/Tasks/)
+
+    Returns:
+        The scorer function if found, None otherwise
+    """
+    # Allow walking up one level so that e.g. benchmarks/GAIA/Tasks/ can find
+    # benchmarks/GAIA/Scripts/custom_tabulate.py
+    parent_dir = os.path.dirname(os.path.abspath(scenario_dir))
+    module_path = find_tabulate_module(scenario_dir, stop_dir=parent_dir)
+    if module_path is None:
+        return None
+
+    try:
+        module = load_module(module_path)
+        scorer_fn = getattr(module, "scorer", None)
+        if scorer_fn is not None and callable(scorer_fn):
+            print(f"Using custom scorer from '{module_path}'")
+            return scorer_fn
+    except Exception as e:
+        print(f"Warning: Failed to load custom scorer from '{module_path}': {e}")
+
+    return None
+
+
+def check_scenario_success(results_dir: str) -> Optional[bool]:
+    """
+    Check if a scenario completed successfully by reading console_log.txt.
+
+    Args:
+        results_dir: Path to the repetition results directory
+
+    Returns:
+        True if successful, False if completed but failed, None if not completed
+    """
+    console_log = os.path.join(results_dir, "console_log.txt")
+    if not os.path.isfile(console_log):
+        return None
+
+    try:
+        with open(console_log, "rt") as fh:
+            content = fh.read()
+
+            # Check for success
+            for s in SUCCESS_STRINGS:
+                if s in content:
+                    return True
+
+            # Check for completion without success
+            for s in COMPLETED_STRINGS:
+                if s in content:
+                    return False
+
+            # Not completed
+            return None
+    except OSError:
+        return None
+
+
+def get_scenario_elapsed_time(results_dir: str) -> Optional[float]:
+    """
+    Get the elapsed time for a scenario from console_log.txt.
+
+    Args:
+        results_dir: Path to the repetition results directory
+
+    Returns:
+        Elapsed time in seconds, or None if not available
+    """
+    console_log = os.path.join(results_dir, "console_log.txt")
+    if not os.path.isfile(console_log):
+        return None
+
+    try:
+        with open(console_log, "rt") as fh:
+            content = fh.read()
+            # Look for timing pattern
+            match = re.search(r"AgentChat execution time:\s*([\d.]+)", content)
+            if match:
+                return float(match.group(1))
+            return None
+    except (OSError, ValueError):
+        return None
+
+
+def get_scenario_turns(results_dir: str) -> Optional[int]:
+    """
+    Get the number of conversation turns from console_log.txt.
+
+    Counts occurrences of "TextMessage" in the log.
+
+    Args:
+        results_dir: Path to the repetition results directory
+
+    Returns:
+        Number of turns, or None if not available
+    """
+    console_log = os.path.join(results_dir, "console_log.txt")
+    if not os.path.isfile(console_log):
+        return None
+
+    try:
+        with open(console_log, "rt") as fh:
+            content = fh.read()
+            count = content.count("TextMessage")
+            if count == 0:
+                return None
+            return max(count - 1, 0)
+    except OSError:
+        return None
+
+
+def get_timestamped_results_dir(scenario_name: str, base_dir: str = "Results") -> str:
+    """
+    Generate a results directory path with scenario name and timestamp suffix to avoid conflicts.
+
+    Args:
+        scenario_name: Name of the scenario being run
+        base_dir: Base results directory (default: "Results")
+
+    Returns:
+        Directory path in format: {base_dir}/{scenario_name}_{timestamp}
+        Example: Results/human_eval_20260106_143025
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    hash = random.randint(0, 999)
+    return os.path.join(base_dir, f"{scenario_name}_{timestamp}_{hash}")
 
 
 def run_scenarios(
@@ -66,6 +224,13 @@ def run_scenarios(
     results_dir: str = "Results",
     subsample: Union[None, int, float] = None,
     env_file: Union[None, str] = None,
+    apptainer_image: Optional[str] = None,
+    use_apptainer: bool = False,
+    skip_scenario_subdir: bool = False,
+    streaming: bool = False,
+    api_port: Optional[int] = None,
+    no_progress_ui: bool = False,
+    minimal_logs: bool = False,
 ) -> None:
     """
     Run a set agbench scenarios a given number of times.
@@ -76,6 +241,10 @@ def run_scenarios(
         n_repeats (int):    The number of times each scenario instance will be repeated
         is_native (bool):   True if the scenario should be run locally rather than in Docker (proceed with caution!)
         results_dir (path): The folder were results will be saved.
+        streaming: Whether to enable streaming results
+        api_port: Port for API server (if streaming enabled)
+        no_progress_ui: Whether to disable progress UI
+        minimal_logs: If True, clean up unnecessary files after execution, keeping only console_log.txt
     """
 
     files: List[str] = []
@@ -97,663 +266,220 @@ def run_scenarios(
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), scenario)
 
-    # Run all the scenario files
-    for scenario_file in files:
-        scenario_name: Optional[str] = None
-        scenario_dir: Optional[str] = None
-        file_handle = None
+    # Create persistent apptainer instance if using apptainer
+    apptainer_instance = None
+    if use_apptainer:
+        # Determine the image to use
+        image_to_use = apptainer_image
+        if image_to_use is None:
+            raise FileNotFoundError(f"Apptainer image not provided!")
 
-        # stdin
-        if scenario_file == "-":
-            scenario_name = "stdin"
-            scenario_dir = "."
-            file_handle = sys.stdin
-        else:
-            scenario_name_parts = os.path.basename(scenario_file).split(".")
-            scenario_name_parts.pop()
-            scenario_name = ".".join(scenario_name_parts)
-            scenario_dir = os.path.dirname(os.path.realpath(scenario_file))
-            file_handle = open(scenario_file, "rt")
+        # Get bind mounts and environment
+        env = get_scenario_env(token_provider=token_provider, env_file=env_file)
+        binds = prepare_apptainer_binds(env)
 
-        # Read all the lines, then subsample if needed
-        lines = [line for line in file_handle]
-        if subsample is not None:
-            # How many lines are we sampling
-            n = 0
-            # It's a proportion
-            if 0 <= subsample < 1:
-                n = int(len(lines) * subsample + 0.5)
-            # It's a raw count
+        # Create and start the persistent instance
+        apptainer_instance = ApptainerInstance(image_to_use, binds, env)
+        apptainer_instance.start()
+
+    # Initialize streaming components
+    result_tracker = None
+    progress_ui = None
+    api_server = None
+
+    if streaming:
+        from .live_results import LiveResultTracker
+        from .progress_ui import ProgressUI
+
+        # Ensure results directory exists for result.json
+        os.makedirs(results_dir, exist_ok=True)
+
+        # Get scenario name for tracking
+        scenario_name_for_tracking = "benchmark"
+        if files:
+            if files[0] == "-":
+                scenario_name_for_tracking = "stdin"
             else:
-                n = int(subsample)
-            n = max(0, min(n, len(lines)))
-            lines = subsample_rng.sample(lines, n)
+                parts = os.path.basename(files[0]).split(".")
+                parts.pop()
+                scenario_name_for_tracking = ".".join(parts)
 
-        for line in lines:
-            instance = json.loads(line)
+        # Initialize result tracker
+        result_tracker = LiveResultTracker(
+            scenario_name=scenario_name_for_tracking,
+            results_dir=results_dir,
+            auto_register=True,
+        )
 
-            # Create a folder to store the results
-            # Results base
-            if not os.path.isdir(results_dir):
-                os.mkdir(results_dir)
+        # Initialize API server if requested
+        if api_port is not None:
+            from .api_server import APIServer
 
-            # Results for the scenario
-            results_scenario = os.path.join(results_dir, scenario_name)
-            if not os.path.isdir(results_scenario):
-                os.mkdir(results_scenario)
-
-            # Results for the instance
-            results_instance = os.path.join(results_scenario, instance["id"])
-            if not os.path.isdir(results_instance):
-                os.mkdir(results_instance)
-
-            # Results for the repeats
-            for i in range(0, n_repeats):
-                results_repetition = os.path.join(results_instance, str(i))
-
-                # Skip it if it already exists
-                if os.path.isdir(results_repetition):
-                    print(f"Found folder {results_repetition} ... Skipping.")
-                    continue
-                print(f"Running scenario {results_repetition}")
-
-                # Expand the scenario
-                expand_scenario(scenario_dir, instance, results_repetition, config_file)
-
-                # Prepare the environment (keys/values that need to be added)
-                env = get_scenario_env(token_provider=token_provider, env_file=env_file)
-
-                # Run the scenario
-                if is_native:
-                    run_scenario_natively(results_repetition, env)
-                else:
-                    run_scenario_in_docker(
-                        results_repetition,
-                        env,
-                        docker_image=docker_image,
-                    )
-
-        # Close regular files
-        if scenario_file != "-":
-            file_handle.close()
-
-
-def expand_scenario(
-    scenario_dir: str, scenario: ScenarioInstance, output_dir: str, config_file: Union[str, None]
-) -> None:
-    """
-    Expand a scenario into a folder.
-    Despite some awkwardness created by backwards compatibility and notational conveniences, expansion is conceptually simple.
-    It is a series of copy commands (similar to `cp -R`), followed by a series of in-place fine and replace operations.
-    """
-
-    template = scenario["template"]
-
-    # Either key works for finding the substiturions list. "values" may be deprecated in the future
-    substitutions = scenario["substitutions"] if "substitutions" in scenario else scenario["values"]
-
-    # Older versions are only one-level deep. Convert them,
-    if len(substitutions) > 0 and isinstance(substitutions[next(iter(substitutions))], str):
-        substitutions = {"scenario.py": cast(Dict[str, str], substitutions)}
-
-    copy_operations: List[Tuple[str, str]] = []
-
-    # Handle file (str), folder (str), or mapping (List) templates
-    if isinstance(template, str):
-        template_path = os.path.join(scenario_dir, template)
-        if os.path.isdir(template_path):
-            copy_operations.append((template, ""))
-        else:
-            copy_operations.append((template, "scenario.py"))
-    elif isinstance(template, list):
-        for elm in template:
-            if isinstance(elm, list):
-                copy_operations.append((elm[0], elm[1]))
-            else:
-                copy_operations.append((elm, ""))
-    else:
-        raise ValueError("expand_scenario expects an str or list for 'template'")
-
-    # The global includes folder is always copied
-    shutil.copytree(
-        BASE_TEMPLATE_PATH,
-        output_dir,
-        ignore=shutil.ignore_patterns("*.example"),
-        dirs_exist_ok=False,
-    )
-
-    # Expand other folders
-    for items in copy_operations:
-        src_path = pathlib.Path(os.path.join(scenario_dir, items[0])).absolute()
-        dest_path = pathlib.Path(os.path.join(output_dir, items[1])).absolute()
-
-        if os.path.isdir(src_path):
-            shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
-        else:
-            if os.path.isdir(dest_path):
-                # If the destination is a directory, use the same filename
-                shutil.copyfile(src_path, os.path.join(dest_path, os.path.basename(src_path)))
-            else:
-                # Otherwuse use the filename provided
-                shutil.copyfile(src_path, dest_path)
-
-    # Expand templated files
-    for templated_file in substitutions.keys():  # Keys are relative file paths
-        # Read the templated file into memory
-        template_contents: List[str] = list()
-        with open(os.path.join(output_dir, templated_file), "rt") as fh:
-            for line in fh:
-                template_contents.append(line)
-
-        # Rewrite the templated file with substitutions
-        values = substitutions[templated_file]
-        with open(os.path.join(output_dir, templated_file), "wt") as fh:
-            for line in template_contents:
-                for k, v in values.items():
-                    line = line.replace(k, v)
-                fh.write(line)
-
-    # Copy the config
-    if config_file is None:
-        if os.path.isfile(DEFAULT_CONFIG_YAML):
-            config_file = DEFAULT_CONFIG_YAML
-
-    if config_file is not None:
-        src_path = pathlib.Path(config_file).absolute()
-        dest_path = pathlib.Path(os.path.join(output_dir, "config.yaml")).absolute()
-        shutil.copyfile(src_path, dest_path)
-    else:
-        logging.warning(f"No {DEFAULT_CONFIG_YAML} file found.")
-
-
-def get_scenario_env(token_provider: Optional[Callable[[], str]] = None, env_file: str | None = None) -> Dict[str, str]:
-    """
-    Return a dictionary of environment variables needed to run a scenario.
-
-    Args:
-        config_list (list): An AutoGen OAI_CONFIG_LIST to be used when running scenarios.
-        env_file (str): The path to the env_file to read. (if None, default to DEFAULT_ENV_FILE)
-
-    Returns: A dictionary of keys and values that need to be added to the system environment.
-    """
-    env: Dict[str, str] = dict()
-
-    # Populate with commonly needed keys
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-    if openai_api_key is not None and len(openai_api_key.strip()) > 0:
-        env["OPENAI_API_KEY"] = openai_api_key
-
-    ## Support Azure auth tokens
-    azure_openai_ad_token = os.environ.get("AZURE_OPENAI_AD_TOKEN")
-    if azure_openai_ad_token is None and token_provider is not None:
-        azure_openai_ad_token = token_provider()
-    if azure_openai_ad_token is not None and len(azure_openai_ad_token.strip()) > 0:
-        env["AZURE_OPENAI_AD_TOKEN"] = azure_openai_ad_token
-
-    # Update with any values from the ENV.json file
-    env_file_contents: Dict[str, Any] = {}
-    if env_file is None:
-        # Env file was not specified, so read the default, or warn if the default file is missing.
-        if os.path.isfile(DEFAULT_ENV_FILE_YAML):
-            with open(DEFAULT_ENV_FILE_YAML, "r") as fh:
-                env_file_contents = yaml.safe_load(fh)
-        elif os.path.isfile(DEFAULT_ENV_FILE_JSON):
-            with open(DEFAULT_ENV_FILE_JSON, "rt") as fh:
-                env_file_contents = json.loads(fh.read())
-            logging.warning(f"JSON environment files are deprecated. Migrate to '{DEFAULT_ENV_FILE_YAML}'")
-        else:
-            logging.warning(
-                f"The environment file '{DEFAULT_ENV_FILE_YAML}' was not found. A default environment will be provided, containing the keys: {env.keys()}"
+            api_server = APIServer(
+                results_dir=results_dir,
+                port=api_port,
+                result_tracker=result_tracker,
             )
-    else:
-        # Env file was specified. Throw an error if the file can't be read.
-        with open(env_file, "rt") as fh:
-            if env_file.endswith(".json"):
-                logging.warning("JSON environment files are deprecated. Migrate to YAML")
-                env_file_contents = json.loads(fh.read())
+            api_server.start()
+
+    try:
+        # Emit RUN_START event
+        if streaming:
+            hook_manager = get_hook_manager()
+            hook_manager.emit(Event(event_type=EventType.RUN_START))
+
+        # Run all the scenario files
+        for scenario_file in files:
+            scenario_name: Optional[str] = None
+            scenario_dir: Optional[str] = None
+            file_handle = None
+
+            # stdin
+            if scenario_file == "-":
+                scenario_name = "stdin"
+                scenario_dir = "."
+                file_handle = sys.stdin
             else:
-                env_file_contents = yaml.safe_load(fh)
-
-    # Apply substitutions in-place
-    substitute_env_variables(env_file_contents)
-
-    # Flatten any structures
-    for key, value in env_file_contents.items():
-        if isinstance(value, dict) or isinstance(value, list):
-            env_file_contents[key] = json.dumps(value)
-
-    # Warn about carrying env variables
-    if "OPENAI_API_KEY" in env and "OPENAI_API_KEY" not in env_file_contents:
-        logging.warning(
-            f"Implicit inclusion of OPENAI_API_KEY in the task environment is deprecated. Add it to {DEFAULT_ENV_FILE_YAML} instead. E.g.,\n"
-            + """
-
-OPENAI_API_KEY: ${OPENAI_API_KEY}
-
-"""
-        )
-
-    # Apply the loaded variables
-    env.update(cast(Dict[str, str], env_file_contents))
-
-    return env
-
-
-def substitute_env_variables(json_data: Any) -> None:
-    """
-    Recursively replaces any instance of "${ENV_VARIABLE}" with os.environ("ENV_VARIABLE") in a structure returned from json.loads()
-    """
-
-    def replace_env_var(match: Any) -> str:
-        var_name = match.group(1)
-        return os.environ.get(var_name, "")
-
-    pattern = re.compile(r"\$\{(\w+)\}")
-
-    def replace_in_dict(d: Dict[str, Any]) -> None:
-        for key, value in d.items():
-            if isinstance(value, str):
-                d[key] = pattern.sub(replace_env_var, value)
-            elif isinstance(value, dict):
-                replace_in_dict(cast(Dict[str, Any], value))
-            elif isinstance(value, list):
-                # Note: with the task mypy complains of a redundant cast
-                # without the cast, pyright complains the type is unknown
-                replace_in_list(cast(List[Any], value))  # type: ignore
-
-    def replace_in_list(lst: List[Any]) -> None:
-        for i, item in enumerate(lst):
-            if isinstance(item, str):
-                lst[i] = pattern.sub(replace_env_var, item)
-            elif isinstance(item, dict):
-                replace_in_dict(cast(Dict[str, Any], item))
-            elif isinstance(item, list):
-                replace_in_list(cast(List[Any], item))  # type: ignore
-
-    if isinstance(json_data, dict):
-        replace_in_dict(cast(Dict[str, Any], json_data))
-    elif isinstance(json_data, list):
-        replace_in_list(cast(List[Any], json_data))  # type: ignore
-
-
-def run_scenario_natively(work_dir: str, env: Dict[str, str], timeout: int = TASK_TIMEOUT) -> None:
-    """
-    Run a scenario in the native environment.
-
-    Args:
-        work_dir (path): the path to the working directory previously created to house this sceario instance
-    """
-
-    # Get the current working directory
-    cwd = os.getcwd()
-
-    # Prepare the environment variables
-    full_env = os.environ.copy()
-    full_env.update(env)
-
-    # Navigate to the scenario
-    os.chdir(work_dir)
-    print("\n\n" + os.getcwd() + "\n===================================================================")
-
-    # Prepare the run script
-    with open(os.path.join("run.sh"), "wt") as f:
-        f.write(
-            f"""#
-echo RUN.SH STARTING !#!#
-export AUTOGEN_TESTBED_SETTING="Native"
-echo "agbench version: {__version__}" > timestamp.txt
-
-# Create and activate the virtual environment
-# This is called in a subprocess, and will not impact the parent
-{sys.executable} -m venv .agbench_venv
-. .agbench_venv/bin/activate
-
-# Run the global init script if it exists
-if [ -f global_init.sh ] ; then
-    . ./global_init.sh
-fi
-
-# Run the scenario init script if it exists
-if [ -f scenario_init.sh ] ; then
-    . ./scenario_init.sh
-fi
-
-# Run the scenario
-pip install -r requirements.txt
-echo SCENARIO.PY STARTING !#!#
-start_time=$(date +%s)
-timeout --preserve-status --kill-after {timeout  + 30}s {timeout}s python scenario.py
-end_time=$(date +%s)
-EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ]; then
-    echo SCENARIO.PY EXITED WITH CODE: $EXIT_CODE !#!#
-else
-    echo SCENARIO.PY COMPLETE !#!#
-fi
-elapsed_time=$((end_time - start_time))
-echo "SCENARIO.PY RUNTIME: $elapsed_time !#!#"
-
-# Clean up
-if [ -d .cache ] ; then
-    rm -Rf .cache
-fi
-
-if [ -d __pycache__ ] ; then
-    rm -Rf __pycache__
-fi
-
-# Run the scenario finalize script if it exists
-if [ -f scenario_finalize.sh ] ; then
-    . ./scenario_finalize.sh
-fi
-
-# Run the global finalize script if it exists
-if [ -f global_finalize.sh ] ; then
-    . ./global_finalize.sh
-fi
-
-# We don't need to deactivate the venv because it's
-# contained in the subprocess; but we should clean it up
-if [ -d .agbench_venv ] ; then
-    rm -Rf .agbench_venv
-fi
-
-echo RUN.SH COMPLETE !#!#
-"""
-        )
-
-    # Run the script and log the output
-    with open("console_log.txt", "wb") as f:
-        process = subprocess.Popen(
-            ["sh", "run.sh"],
-            env=full_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        for c in iter(lambda: process.stdout.read(1), b""):  # type: ignore
-            f.write(c)
-            os.write(sys.stdout.fileno(), c)  # Write binary to stdout
-
-    # Return where we started
-    os.chdir(cwd)
-    return
-
-
-def run_scenario_in_docker(
-    work_dir: str, env: Dict[str, str], timeout: int = TASK_TIMEOUT, docker_image: Optional[str] = None
-) -> None:
-    """
-    Run a scenario in a Docker environment.
-
-    Args:
-        work_dir (path): the path to the working directory previously created to house this sceario instance
-        timeout (Optional, int): the number of seconds to allow a Docker container to run before timing out
-    """
-
-    client = docker.from_env()
-    image = None
-
-    # If the docker_image is None, then we will fetch DEFAULT_DOCKER_IMAGE_TAG, if present,
-    # or build it if missing.
-    if docker_image is None:
-        # Pull a suitable image
-        try:
-            image = client.images.get(DEFAULT_DOCKER_IMAGE_TAG)
-        except ImageNotFound:
-            print(f"Building default Docker image '{DEFAULT_DOCKER_IMAGE_TAG}'. This may take a few minutes...")
-            try:
-                build_default_docker_image(client, DEFAULT_DOCKER_IMAGE_TAG)
-                image = client.images.get(DEFAULT_DOCKER_IMAGE_TAG)
-            except DockerException:
-                print(f"Failed to build image '{DEFAULT_DOCKER_IMAGE_TAG}'")
-
-    # Otherwise get the requested image
-    else:
-        try:
-            image = client.images.get(docker_image)
-        except ImageNotFound:
-            # pull the image
-            print(f"Pulling image '{docker_image}'")
-            try:
-                image = client.images.pull(docker_image)
-            except DockerException:
-                print(f"Failed to pull image '{docker_image}'")
-
-    # Prepare the run script
-    with open(os.path.join(work_dir, "run.sh"), "wt", newline="\n") as f:
-        f.write(
-            f"""#
-echo RUN.SH STARTING !#!#
-export AUTOGEN_TESTBED_SETTING="Docker"
-
-umask 000
-echo "agbench version: {__version__}" > timestamp.txt
-
-# Run the global init script if it exists
-if [ -f global_init.sh ] ; then
-    . ./global_init.sh
-fi
-
-# Run the scenario init script if it exists
-if [ -f scenario_init.sh ] ; then
-    . ./scenario_init.sh
-fi
-
-# Run the scenario
-pip install -r requirements.txt
-echo SCENARIO.PY STARTING !#!#
-start_time=$(date +%s)
-timeout --preserve-status --kill-after {timeout  + 30}s {timeout}s python scenario.py
-end_time=$(date +%s)
-EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ]; then
-    echo SCENARIO.PY EXITED WITH CODE: $EXIT_CODE !#!#
-else
-    echo SCENARIO.PY COMPLETE !#!#
-fi
-elapsed_time=$((end_time - start_time))
-echo "SCENARIO.PY RUNTIME: $elapsed_time !#!#"
-
-# Clean up
-if [ -d .cache ] ; then
-    rm -Rf .cache
-fi
-
-if [ -d __pycache__ ] ; then
-    rm -Rf __pycache__
-fi
-
-# Run the scenario finalize script if it exists
-if [ -f scenario_finalize.sh ] ; then
-    . ./scenario_finalize.sh
-fi
-
-# Run the global finalize script if it exists
-if [ -f global_finalize.sh ] ; then
-    . ./global_finalize.sh
-fi
-
-echo RUN.SH COMPLETE !#!#
-"""
-        )
-
-    # Figure out what folders to mount
-    volumes = {str(pathlib.Path(work_dir).absolute()): {"bind": "/workspace", "mode": "rw"}}
-
-    # Add the autogen repo if we can find it
-    autogen_repo_base = os.environ.get("AUTOGEN_REPO_BASE")
-    if autogen_repo_base is None:
-        autogen_repo_base = find_autogen_repo(os.getcwd())
-    elif not os.path.isdir(autogen_repo_base):
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), autogen_repo_base)
-
-    if autogen_repo_base is None:
-        raise ValueError(
-            "Could not find AutoGen repo base. Please set the environment variable AUTOGEN_REPO_BASE to the correct value."
-        )
-
-    autogen_repo_base = os.path.join(autogen_repo_base, "python")
-    volumes[str(pathlib.Path(autogen_repo_base).absolute())] = {"bind": "/autogen_python", "mode": "rw"}
-
-    # Add the Docker socket if we are running on Linux
-    # This allows docker-out-of-docker to work, but provides access to the Docker daemon on the host.
-    # This maintains good isolation for experiment purposes (e.g., ensuring consistent initial conditions),
-    # but deminishes the security benefits of using Docker (e.g., when facing a deliberately malicious agent).
-    # since it would allow clients to mount privalaged images, volumes, etc.
-    docker_host = os.environ.get("DOCKER_HOST", "unix:///var/run/docker.sock")
-    if docker_host.startswith("unix://"):
-        docker_socket = os.path.abspath(docker_host[7:])
-        if os.path.exists(docker_socket):
-            st_mode = os.stat(docker_socket).st_mode
-            if stat.S_ISSOCK(st_mode):
-                volumes[docker_socket] = {"bind": "/var/run/docker.sock", "mode": "rw"}
-
-                # Update the environment variables so that the inner docker client can
-                # mount the workspace
-                env = {k: v for k, v in env.items()}
-                env["HOST_WORKSPACE"] = str(pathlib.Path(work_dir).absolute())
-
-    print("Mounting:")
-    for k in volumes.keys():
-        bind = volumes[k]["bind"]
-        mode = volumes[k]["mode"].upper()
-        if bind == "/workspace":
-            k = os.path.relpath(k)
-        print(f"[{mode}]\t'{k}' => '{bind}'")
-    print("===================================================================")
-
-    assert image is not None
-    # Create and run the container
-    container = client.containers.run(
-        image,
-        command=["sh", "run.sh"],
-        working_dir="/workspace",
-        environment=env,
-        detach=True,
-        remove=True,
-        auto_remove=True,
-        # Type hint of docker is wrong here
-        volumes=volumes,  # type: ignore
-        network="host",  # Use the host network to avoid issues with localhost.
-    )
-
-    # Read the logs in a streaming fashion. Keep an eye on the time to make sure we don't need to stop.
-    docker_timeout: float = timeout + 60  # One full minute after the bash timeout command should have already triggered
-    start_time = time.time()
-    logs = container.logs(stream=True)
-    log_file = open(os.path.join(work_dir, "console_log.txt"), "wt", encoding="utf-8")
-    stopping = False
-    exiting = False
-
-    while True:
-        try:
-            chunk = next(logs)  # Manually step the iterator so it is captures with the try-catch
-
-            # Stream the data to the log file and the console
-            chunk_str = chunk.decode("utf-8")
-            log_file.write(chunk_str)
-            log_file.flush()
-            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
-            sys.stdout.write(chunk_str)
-            sys.stdout.flush()
-
-            # Check if we need to terminate
-            if not stopping and time.time() - start_time >= docker_timeout:
-                container.stop()
-
-                # Don't exit the loop right away, as there are things we may still want to read from the logs
-                # but remember how we got here.
-                stopping = True
-        except KeyboardInterrupt:
-            log_file.write("\nKeyboard interrupt (Ctrl-C). Attempting to exit gracefully.\n")
-            log_file.flush()
-            sys.stdout.write("\nKeyboard interrupt (Ctrl-C). Attempting to exit gracefully.\n")
-            sys.stdout.flush()
-
-            # Start the exit process, and give it a minute, but keep iterating
-            container.stop()
-            exiting = True
-            docker_timeout = time.time() - start_time + 60
-        except StopIteration:
-            break
-
-    # Clean up the container
-    try:
-        container.remove()
-    except APIError:
-        pass
-
-    if stopping:  # By this line we've exited the loop, and the container has actually stopped.
-        log_file.write("\nDocker timed out.\n")
-        log_file.flush()
-        sys.stdout.write("\nDocker timed out.\n")
-        sys.stdout.flush()
-
-    if exiting:  # User hit ctrl-C
-        sys.exit(1)
-
-
-def build_default_docker_image(docker_client: docker.DockerClient, image_tag: str) -> None:
-    for segment in docker_client.api.build(
-        path=RESOURCES_PATH,
-        dockerfile="Dockerfile",
-        rm=True,
-        tag=image_tag,
-        decode=True,
-    ):
-        if "stream" in segment:
-            sys.stdout.write(segment["stream"])
-
-
-def find_autogen_repo(path: str) -> Optional[str]:
-    """
-    Utility for identifying if the path is a subdirectory of the autogen_core repo.
-
-    Returns: the path to the root of the autogen_core repo if one is found, otherwise None
-    """
-
-    # Normalize the path (we expect a directory)
-    path = os.path.abspath(path)
-    if os.path.isfile(path):
-        path = os.path.dirname(path)
-
-    while True:
-        test_path = os.path.join(path, "python", "packages", "autogen-core")  # We found autogen_core
-        if os.path.isdir(test_path):
-            return path
-
-        # Stop if we hit the root
-        parent_dir = os.path.abspath(os.path.join(path, os.pardir))
-        if parent_dir == path:
-            break
-
-        # Keep searching
-        path = parent_dir
-
-    return None
-
-
-def split_jsonl(file_path: str, num_parts: int) -> List[List[Dict[str, Any]]]:
-    """
-    Split a JSONL file into num_parts approximately equal parts.
-    """
-    with open(file_path, "r") as f:
-        data = [json.loads(line) for line in f]
-
-    random.shuffle(data)  # Shuffle the data for better distribution
-    chunk_size = len(data) // num_parts
-    return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
-
-
-def mkdir_p(path: str) -> None:
-    """
-    Create a directory if it doesn't exist, handling race conditions.
-    """
-    try:
-        os.makedirs(path, exist_ok=True)
-    except OSError as exc:
-        if exc.errno != errno.EEXIST:
-            raise
+                scenario_name_parts = os.path.basename(scenario_file).split(".")
+                scenario_name_parts.pop()
+                scenario_name = ".".join(scenario_name_parts)
+                scenario_dir = os.path.dirname(os.path.realpath(scenario_file))
+                file_handle = open(scenario_file, "rt")
+
+            # Discover custom scorer for this benchmark
+            custom_scorer = discover_scorer(scenario_dir) if scenario_dir != "." else None
+
+            # Read all the lines, then subsample if needed
+            lines = [line for line in file_handle]
+            if subsample is not None:
+                # How many lines are we sampling
+                n = 0
+                # It's a proportion
+                if 0 <= subsample < 1:
+                    n = int(len(lines) * subsample + 0.5)
+                # It's a raw count
+                else:
+                    n = int(subsample)
+                n = max(0, min(n, len(lines)))
+                lines = subsample_rng.sample(lines, n)
+
+            # Calculate total tasks for progress UI
+            total_tasks = len(lines) * n_repeats
+
+            # Initialize progress UI if streaming enabled
+            if streaming and not no_progress_ui:
+                from .progress_ui import ProgressUI
+
+                progress_ui = ProgressUI(
+                    scenario_name=scenario_name or "benchmark",
+                    total_tasks=total_tasks,
+                )
+                progress_ui.start()
+
+            instances = [json.loads(line) for line in lines]
+
+            for i in range(n_repeats):
+                for instance in instances:
+                    # Create a folder to store the results
+                    # Results base
+                    if not os.path.isdir(results_dir):
+                        os.makedirs(results_dir, exist_ok=True)
+                    # Results for the scenario
+                    results_scenario = os.path.join(results_dir, scenario_name)
+                    if not os.path.isdir(results_scenario):
+                        os.mkdir(results_scenario)
+
+                    # Results for the instance
+                    results_instance = os.path.join(results_scenario, instance["id"])
+                    if not os.path.isdir(results_instance):
+                        os.mkdir(results_instance)
+
+                    # Results for the repeats
+                    results_repetition = os.path.join(results_instance, str(i))
+
+                    # Emit REPETITION_START event
+                    if streaming:
+                        hook_manager = get_hook_manager()
+                        hook_manager.emit(
+                            Event(
+                                event_type=EventType.REPETITION_START,
+                                task_id=instance["id"],
+                                repetition_id=i,
+                            )
+                        )
+
+                    start_time = time.time()
+
+                    # Expand the scenario
+                    expand_scenario(scenario_dir, instance, results_repetition, config_file)
+
+                    # Prepare the environment (keys/values that need to be added)
+                    env = get_scenario_env(token_provider=token_provider, env_file=env_file)
+
+                    # Run the scenario
+                    if is_native:
+                        run_scenario_natively(results_repetition, env)
+                    elif use_apptainer:
+                        run_scenario_in_apptainer(
+                            results_repetition,
+                            apptainer_instance=apptainer_instance,
+                        )
+
+                    # Clean up unnecessary files if minimal_logs is enabled
+                    if minimal_logs:
+                        from .workload_executor import _cleanup_logs
+                        _cleanup_logs(results_repetition)
+
+                    # Emit REPETITION_END event
+                    if streaming:
+                        elapsed_time = time.time() - start_time
+                        if custom_scorer is not None:
+                            success = custom_scorer(results_repetition)
+                        else:
+                            success = check_scenario_success(results_repetition)
+                        logged_elapsed = get_scenario_elapsed_time(results_repetition)
+                        if logged_elapsed is not None:
+                            elapsed_time = logged_elapsed
+                        turns = get_scenario_turns(results_repetition)
+
+                        hook_manager = get_hook_manager()
+                        hook_manager.emit(
+                            Event(
+                                event_type=EventType.REPETITION_END,
+                                task_id=instance["id"],
+                                repetition_id=i,
+                                success=success,
+                                elapsed_time=elapsed_time,
+                                turns=turns,
+                            )
+                        )
+
+            # Close regular files
+            if scenario_file != "-":
+                file_handle.close()
+
+            # Stop progress UI after this scenario file
+            if progress_ui is not None:
+                progress_ui.stop()
+                progress_ui = None
+
+        # Emit RUN_END event
+        if streaming:
+            hook_manager = get_hook_manager()
+            hook_manager.emit(Event(event_type=EventType.RUN_END))
+
+    finally:
+        # Clean up streaming components
+        if progress_ui is not None:
+            progress_ui.stop()
+        if api_server is not None:
+            api_server.stop()
+        if result_tracker is not None:
+            result_tracker.unregister()
+
+        # Clean up the persistent apptainer instance
+        if apptainer_instance is not None:
+            apptainer_instance.stop()
 
 
 def run_scenarios_subset(
@@ -766,20 +492,44 @@ def run_scenarios_subset(
     results_dir: str = "Results",
     subsample: Union[None, int, float] = None,
     env_file: Union[None, str] = None,
+    apptainer_image: Optional[str] = None,
+    use_apptainer: bool = False,
+    apptainer_instance_name: Optional[str] = None,
+    skip_scenario_subdir: bool = False,
 ) -> None:
     """
     Run a subset of agbench scenarios a given number of times.
+    In parallel mode, all workers share the same apptainer instance.
+
+    Args:
+        apptainer_instance_name: Name of a shared apptainer instance (for parallel mode)
     """
+    # If we have an instance name, create a lightweight wrapper to use it
+    apptainer_instance = None
+    if use_apptainer and apptainer_instance_name:
+        # Create a minimal instance object that references the shared instance
+        # We don't call start() since it's already running in the parent process
+        image_to_use = apptainer_image if apptainer_image else f"{DEFAULT_DOCKER_IMAGE_TAG}.sif"
+        env = get_scenario_env(env_file=env_file)
+        binds = prepare_apptainer_binds(env)
+        apptainer_instance = ApptainerInstance(image_to_use, binds, env)
+        apptainer_instance.instance_name = apptainer_instance_name  # Use the shared instance
+
+    if apptainer_instance is None:
+        raise RuntimeError(f"Apptainer image not set up correctly!")
+
     for instance in scenarios:
         # Create a folder to store the results
         # Results base
 
         mkdir_p(results_dir)
 
-        # Results for the scenario
-
-        results_scenario = os.path.join(results_dir, scenario_name)
-        mkdir_p(results_scenario)
+        # Results for the scenario (skip if already included in results_dir)
+        if skip_scenario_subdir:
+            results_scenario = results_dir
+        else:
+            results_scenario = os.path.join(results_dir, scenario_name)
+            mkdir_p(results_scenario)
 
         # Results for the instance
         results_instance = os.path.join(results_scenario, instance["id"])
@@ -793,7 +543,7 @@ def run_scenarios_subset(
             if os.path.isdir(results_repetition):
                 print(f"Found folder {results_repetition} ... Skipping.")
                 continue
-            print(f"Running scenario {results_repetition}")
+            # print(f"Running scenario {results_repetition}")
 
             # Expand the scenario
             expand_scenario(".", instance, results_repetition, config_file)  # type: ignore
@@ -804,17 +554,22 @@ def run_scenarios_subset(
             # Run the scenario
             if is_native:
                 run_scenario_natively(results_repetition, env)
-            else:
-                run_scenario_in_docker(
+            elif use_apptainer:
+                run_scenario_in_apptainer(
                     results_repetition,
-                    env,
-                    docker_image=docker_image,
+                    apptainer_instance=apptainer_instance,
                 )
 
 
-def run_parallel(args: argparse.Namespace) -> None:
+def run_parallel(args: argparse.Namespace, results_dir: str = "Results", skip_scenario_subdir: bool = False) -> None:
     """
     Run scenarios in parallel.
+    Creates a single shared apptainer instance that all workers use concurrently.
+
+    Args:
+        args: Command-line arguments
+        results_dir: Directory to save results (default: "Results")
+        skip_scenario_subdir: Whether to skip creating scenario subdirectory (default: False)
     """
     # Read and split the JSONL file
     scenarios = split_jsonl(args.scenario, args.parallel)
@@ -822,26 +577,237 @@ def run_parallel(args: argparse.Namespace) -> None:
     scenario_name_parts.pop()
     scenario_name = ".".join(scenario_name_parts)
 
-    # Create a pool of worker processes
-    with Pool(processes=args.parallel) as pool:
-        # Prepare arguments for each worker
-        worker_args = [
-            (
-                scenario_name,
-                scenario_subset,
-                args.repeat,
-                args.native,
-                args.config,
-                args.docker_image,
-                "Results",
-                args.subsample,
-                args.env,
-            )
-            for scenario_subset in scenarios
-        ]
+    # Create a shared persistent apptainer instance if needed
+    apptainer_instance: Optional[ApptainerInstance] = None
+    use_apptainer = getattr(args, "apptainer", False)
 
-        # Run scenarios in parallel
-        pool.starmap(run_scenarios_subset, worker_args)
+    if use_apptainer:
+        # Determine the image to use
+        apptainer_image = getattr(args, "apptainer_image", None)
+        image_to_use = apptainer_image
+        if image_to_use is None:
+            raise FileNotFoundError(f"Apptainer image not provided!")
+
+        # Get bind mounts and environment
+        env = get_scenario_env(env_file=args.env)
+        binds = prepare_apptainer_binds(env)
+
+        # Create and start the shared persistent instance
+        apptainer_instance = ApptainerInstance(image_to_use, binds, env)
+        apptainer_instance.start()
+        print(f"Shared apptainer instance created for {args.parallel} parallel workers")
+
+    try:
+        # Create a pool of worker processes
+        with Pool(processes=args.parallel) as pool:
+            # Prepare arguments for each worker, passing the instance name
+            worker_args = [
+                (
+                    scenario_name,
+                    scenario_subset,
+                    args.repeat,
+                    args.native,
+                    args.config,
+                    args.docker_image,
+                    results_dir,
+                    args.subsample,
+                    args.env,
+                    getattr(args, "apptainer_image", None),
+                    getattr(args, "apptainer", False),
+                    apptainer_instance.instance_name if apptainer_instance else None,
+                    skip_scenario_subdir,
+                )
+                for scenario_subset in scenarios
+            ]
+
+            # Run scenarios in parallel
+            pool.starmap(run_scenarios_subset, worker_args)
+
+    finally:
+        # Clean up the shared apptainer instance
+        if apptainer_instance is not None:
+            apptainer_instance.stop()
+
+
+def run_scenarios_with_rate_control(
+    scenario: str,
+    n_repeats: int,
+    is_native: bool,
+    config_file: Union[None, str],
+    token_provider: Optional[Callable[[], str]],
+    results_dir: str = "Results",
+    subsample: Union[None, int, float] = None,
+    env_file: Union[None, str] = None,
+    apptainer_image: Optional[str] = None,
+    use_apptainer: bool = False,
+    num_concurrent: int = 1,
+    request_rate: Optional[float] = None,
+    skip_scenario_subdir: bool = False,
+    streaming: bool = False,
+    api_port: Optional[int] = None,
+    no_progress_ui: bool = False,
+    minimal_logs: bool = False,
+) -> None:
+    """
+    Run scenarios with controlled concurrency and Poisson-distributed rate limiting.
+
+    Implements rate limiting similar to sglang's bench_serving.py using exponential
+    distribution for inter-arrival times (Poisson process).
+
+    Args:
+        scenario: Path to scenario file or directory
+        n_repeats: Number of repetitions per scenario
+        is_native: Whether to run natively
+        config_file: Path to config file
+        token_provider: Token provider function
+        results_dir: Directory for results
+        subsample: Subsample proportion or count
+        env_file: Environment file path
+        apptainer_image: Path to apptainer image
+        use_apptainer: Whether to use apptainer
+        num_concurrent: Maximum number of concurrent requests
+        request_rate: Target request rate (requests per second). If None, run as fast as possible.
+        streaming: Whether to enable streaming results
+        api_port: Port for API server (if streaming enabled)
+        no_progress_ui: Whether to disable progress UI
+        minimal_logs: If True, clean up unnecessary files after execution, keeping only console_log.txt
+    """
+    # Discover scenario files
+    files = discover_scenario_files(scenario)
+
+    # Create persistent apptainer instance if using apptainer
+    apptainer_instance = None
+    if use_apptainer:
+        image_to_use = apptainer_image
+        if image_to_use is None:
+            raise FileNotFoundError("Apptainer image not provided!")
+
+        env = get_scenario_env(token_provider=token_provider, env_file=env_file)
+        binds = prepare_apptainer_binds(env)
+        apptainer_instance = ApptainerInstance(image_to_use, binds, env)
+        apptainer_instance.start()
+
+    # Initialize streaming components
+    result_tracker = None
+    progress_ui = None
+    api_server = None
+
+    if streaming:
+        from .live_results import LiveResultTracker
+        from .progress_ui import ProgressUI
+
+        # Ensure results directory exists for result.json
+        os.makedirs(results_dir, exist_ok=True)
+
+        # Get scenario name for tracking
+        scenario_name = "benchmark"
+        if files:
+            scenario_name, _ = get_scenario_name_and_dir(files[0])
+
+        # Initialize result tracker
+        result_tracker = LiveResultTracker(
+            scenario_name=scenario_name,
+            results_dir=results_dir,
+            auto_register=True,
+        )
+
+        # Initialize API server if requested
+        if api_port is not None:
+            from .api_server import APIServer
+
+            api_server = APIServer(
+                results_dir=results_dir,
+                port=api_port,
+                result_tracker=result_tracker,
+            )
+            api_server.start()
+
+    try:
+        # Emit RUN_START event
+        if streaming:
+            hook_manager = get_hook_manager()
+            hook_manager.emit(Event(event_type=EventType.RUN_START))
+
+        # Process each scenario file
+        for scenario_file in files:
+            # Get scenario name and directory
+            scenario_name, scenario_dir = get_scenario_name_and_dir(scenario_file)
+
+            # Discover custom scorer for this benchmark
+            custom_scorer = discover_scorer(scenario_dir) if scenario_dir != "." else None
+
+            # Read scenario lines
+            if scenario_file == "-":
+                file_handle = sys.stdin
+            else:
+                file_handle = open(scenario_file, "rt")
+
+            lines = [line for line in file_handle]
+
+            if scenario_file != "-":
+                file_handle.close()
+
+            # Prepare task list
+            tasks = prepare_task_list(
+                lines=lines,
+                scenario_name=scenario_name,
+                scenario_dir=scenario_dir,
+                results_dir=results_dir,
+                n_repeats=n_repeats,
+                config_file=config_file,
+                subsample=subsample,
+                skip_scenario_subdir=skip_scenario_subdir,
+            )
+
+            # Initialize progress UI if streaming enabled
+            if streaming and not no_progress_ui:
+                progress_ui = ProgressUI(
+                    scenario_name=scenario_name,
+                    total_tasks=len(tasks),
+                )
+                progress_ui.start()
+
+            # Create task runner with streaming support
+            run_task = create_task_runner(
+                is_native=is_native,
+                apptainer_instance=apptainer_instance,
+                token_provider=token_provider,
+                env_file=env_file,
+                emit_events=streaming,
+                minimal_logs=minimal_logs,
+                scorer=custom_scorer,
+            )
+
+            # Execute with Poisson-distributed rate limiting
+            execute_with_poisson_rate(
+                tasks=tasks,
+                run_task=run_task,
+                num_concurrent=num_concurrent,
+                request_rate=request_rate,
+            )
+
+            # Stop progress UI after this scenario
+            if progress_ui is not None:
+                progress_ui.stop()
+                progress_ui = None
+
+        # Emit RUN_END event
+        if streaming:
+            hook_manager = get_hook_manager()
+            hook_manager.emit(Event(event_type=EventType.RUN_END))
+
+    finally:
+        # Clean up streaming components
+        if progress_ui is not None:
+            progress_ui.stop()
+        if api_server is not None:
+            api_server.stop()
+        if result_tracker is not None:
+            result_tracker.unregister()
+
+        # Clean up the persistent apptainer instance
+        if apptainer_instance is not None:
+            apptainer_instance.stop()
 
 
 def get_azure_token_provider() -> Optional[Callable[[], str]]:
@@ -911,31 +877,81 @@ def run_cli(args: Sequence[str]) -> None:
         "-e",
         "--env",
         type=str,
-        help="The environment file to load into Docker, or into the native task context (default: '"
-        + DEFAULT_ENV_FILE_YAML
-        + "').",
+        help="The environment file to load into Docker, or into the native task context",
         default=None,
     )
     parser.add_argument(
         "-c",
         "--config",
         type=str,
-        help="The config file to copy into the Task (default: '" + DEFAULT_CONFIG_YAML + "').",
+        help="The config file to copy into the Task.",
         default=None,
     )
     parser.add_argument(
         "-d",
         "--docker-image",
         type=str,
-        help="The Docker image to use when running scenarios. Can not be used together with --native. (default: '"
+        help="The Docker image to use when running scenarios. Can not be used together with --native or --apptainer. (default: '"
         + DEFAULT_DOCKER_IMAGE_TAG
         + "', which will be created if not present)",
+        default=None,
+    )
+    parser.add_argument(
+        "--apptainer",
+        action="store_true",
+        help="Run the scenarios in Apptainer containers instead of Docker. Can not be used together with --native or --docker-image.",
+    )
+    parser.add_argument(
+        "--apptainer-image",
+        type=str,
+        help="The Apptainer image (.sif file) to use when running scenarios with --apptainer. (default: '"
+        + DEFAULT_DOCKER_IMAGE_TAG
+        + ".sif')",
         default=None,
     )
     parser.add_argument(
         "--native",
         action="store_true",
         help="Run the scenarios natively rather than in docker. NOTE: This is not advisable, and should be done with great caution.",
+    )
+    parser.add_argument(
+        "--num-concurrent",
+        type=int,
+        help="Maximum number of concurrent scenario executions. Enables controlled execution mode with Poisson-distributed rate limiting (similar to sglang bench_serving.py). Cannot be used with --parallel.",
+        default=None,
+    )
+    parser.add_argument(
+        "--request-rate",
+        type=float,
+        help="Target request rate (requests per second) for Poisson-distributed scenario arrivals. Requires --num-concurrent. If not specified, scenarios run as fast as possible with the given concurrency limit.",
+        default=None,
+    )
+    parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Enable streaming results with live progress tracking. Creates result.json in the results directory with real-time updates.",
+    )
+    parser.add_argument(
+        "--api-port",
+        type=int,
+        help="Start a REST API server on the specified port for external monitoring. Requires --streaming. Provides endpoints: /api/status, /api/logs/{task_id}/{rep_id}, /api/health",
+        default=None,
+    )
+    parser.add_argument(
+        "--no-progress-ui",
+        action="store_true",
+        help="Disable the terminal progress UI when --streaming is enabled. Useful for non-interactive environments.",
+    )
+    parser.add_argument(
+        "--minimal-logs",
+        action="store_true",
+        help="Keep only console_log.txt in results directories, removing template files (scenario.py, config.yaml, etc.) after execution. Reduces storage usage significantly.",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        help="Base directory for results (default: 'Results'). A timestamped subdirectory will be created inside.",
+        default="Results",
     )
 
     parsed_args = parser.parse_args(args)
@@ -949,32 +965,71 @@ def run_cli(args: Sequence[str]) -> None:
     if parsed_args.parallel > 1 and parsed_args.subsample is not None:
         sys.exit("The options --parallel and --subsample can not be used together currently. Exiting.")
 
+    # Validate controlled execution parameters
+    if parsed_args.num_concurrent is not None and parsed_args.parallel > 1:
+        sys.exit("The options --num-concurrent and --parallel can not be used together. Exiting.")
+
+    if parsed_args.request_rate is not None and parsed_args.num_concurrent is None:
+        sys.exit("The option --request-rate requires --num-concurrent to be specified. Exiting.")
+
+    # Validate streaming parameters
+    if parsed_args.api_port is not None and not parsed_args.streaming:
+        sys.exit("The option --api-port requires --streaming to be specified. Exiting.")
+
+    if parsed_args.no_progress_ui and not parsed_args.streaming:
+        sys.exit("The option --no-progress-ui requires --streaming to be specified. Exiting.")
+
     # Don't allow both --docker-image and --native on the same command
     if parsed_args.docker_image is not None and parsed_args.native:
         sys.exit("The options --native and --docker-image can not be used together. Exiting.")
+
+    # Don't allow both --apptainer and --native on the same command
+    if parsed_args.apptainer and parsed_args.native:
+        sys.exit("The options --native and --apptainer can not be used together. Exiting.")
+
+    # Don't allow both --apptainer and --docker-image on the same command
+    if parsed_args.apptainer and parsed_args.docker_image is not None:
+        sys.exit("The options --apptainer and --docker-image can not be used together. Exiting.")
+
+    # --apptainer-image requires --apptainer
+    if parsed_args.apptainer_image is not None and not parsed_args.apptainer:
+        sys.exit("The option --apptainer-image requires --apptainer to be specified. Exiting.")
+
+    # Check Docker availability when Docker mode is requested (neither --native nor --apptainer)
+    if not parsed_args.native and not parsed_args.apptainer:
+        if not DOCKER_AVAILABLE:
+            sys.exit(
+                "Docker is not available on this system. Please either:\n"
+                "  1. Install Docker and the Python docker library: pip install docker\n"
+                "  2. Use Apptainer mode: add --apptainer flag\n"
+                "  3. Use native mode: add --native flag (proceed with caution)\n"
+                "Exiting."
+            )
 
     # Warn if running natively
     if parsed_args.native:
         if IS_WIN32:
             sys.exit("Running scenarios with --native is not supported in Windows. Exiting.")
 
-        sys.stderr.write(
-            "WARNING: Running natively, without Docker, not only poses the usual risks of executing arbitrary AI generated code on your machine, it also makes it impossible to ensure that each test starts from a known and consistent set of initial conditions. For example, if the agents spend time debugging and installing Python libraries to solve the task, then those libraries will be available to all other runs. In other words, earlier runs can influence later runs, leading to many confounds in testing.\n\n"
-        )
+        # Crystal: Comment out the native execution warning prompt for smoother runs
 
-        # Does an environment variable override the prompt?
-        allow_native = os.environ.get("AGBENCH_ALLOW_NATIVE")
-        if allow_native is None or allow_native == "":
-            choice = input(
-                'Are you absolutely sure you want to continue with native execution? Type "Yes" exactly, and in full, to proceed: '
-            )
-            if choice.strip().lower() != "yes":
-                sys.exit("Received '" + choice + "'. Exiting.")
-        elif allow_native.strip().lower() != "yes":
-            sys.exit(f"Exiting because AGBENCH_ALLOW_NATIVE is '{allow_native}'\n")
-        else:
-            sys.stderr.write(f"Continuing because AGBENCH_ALLOW_NATIVE is '{allow_native}'\n")
-            time.sleep(0.75)  # Pause very briefly so the message isn't lost in the noise
+        # sys.stderr.write(
+        #     "WARNING: Running natively, without Docker, not only poses the usual risks of executing arbitrary AI generated code on your machine, it also makes it impossible to ensure that each test starts from a known and consistent set of initial conditions. For example, if the agents spend time debugging and installing Python libraries to solve the task, then those libraries will be available to all other runs. In other words, earlier runs can influence later runs, leading to many confounds in testing.\n\n"
+        # )
+
+        # # Does an environment variable override the prompt?
+        # allow_native = os.environ.get("AGBENCH_ALLOW_NATIVE")
+        # if allow_native is None or allow_native == "":
+        #     choice = input(
+        #         'Are you absolutely sure you want to continue with native execution? Type "Yes" exactly, and in full, to proceed: '
+        #     )
+        #     if choice.strip().lower() != "yes":
+        #         sys.exit("Received '" + choice + "'. Exiting.")
+        # elif allow_native.strip().lower() != "yes":
+        #     sys.exit(f"Exiting because AGBENCH_ALLOW_NATIVE is '{allow_native}'\n")
+        # else:
+        #     sys.stderr.write(f"Continuing because AGBENCH_ALLOW_NATIVE is '{allow_native}'\n")
+        #     time.sleep(0.75)  # Pause very briefly so the message isn't lost in the noise
 
     # Parse the subsample
     subsample = None
@@ -995,9 +1050,44 @@ def run_cli(args: Sequence[str]) -> None:
     if parsed_args.azure:
         azure_token_provider = get_azure_token_provider()
 
+    # Extract scenario name from the scenario file path
+    scenario_file = parsed_args.scenario
+    if scenario_file == "-":
+        scenario_name = "stdin"
+    else:
+        scenario_name_parts = os.path.basename(scenario_file).split(".")
+        if scenario_name_parts[-1].lower() == "jsonl":
+            scenario_name_parts.pop()
+        scenario_name = ".".join(scenario_name_parts)
+
+    # Generate timestamped results directory
+    timestamped_results_dir = get_timestamped_results_dir(scenario_name, base_dir=parsed_args.results_dir)
+    print(f"Results will be saved to: {timestamped_results_dir}")
+
     # Run the scenario
     if parsed_args.parallel > 1:
-        run_parallel(parsed_args)
+        run_parallel(parsed_args, timestamped_results_dir, skip_scenario_subdir=True)
+    elif parsed_args.num_concurrent is not None:
+        # Controlled execution mode with Poisson-distributed rate limiting
+        run_scenarios_with_rate_control(
+            scenario=parsed_args.scenario,
+            n_repeats=parsed_args.repeat,
+            is_native=True if parsed_args.native else False,
+            config_file=parsed_args.config,
+            token_provider=azure_token_provider,
+            results_dir=timestamped_results_dir,
+            subsample=subsample,
+            env_file=parsed_args.env,
+            apptainer_image=parsed_args.apptainer_image,
+            use_apptainer=parsed_args.apptainer,
+            num_concurrent=parsed_args.num_concurrent,
+            request_rate=parsed_args.request_rate,
+            skip_scenario_subdir=True,
+            streaming=parsed_args.streaming,
+            api_port=parsed_args.api_port,
+            no_progress_ui=parsed_args.no_progress_ui,
+            minimal_logs=parsed_args.minimal_logs,
+        )
     else:
         run_scenarios(
             scenario=parsed_args.scenario,
@@ -1006,6 +1096,14 @@ def run_cli(args: Sequence[str]) -> None:
             config_file=parsed_args.config,
             token_provider=azure_token_provider,
             docker_image=parsed_args.docker_image,
+            results_dir=timestamped_results_dir,
             subsample=subsample,
             env_file=parsed_args.env,
+            apptainer_image=parsed_args.apptainer_image,
+            use_apptainer=parsed_args.apptainer,
+            skip_scenario_subdir=True,
+            streaming=parsed_args.streaming,
+            api_port=parsed_args.api_port,
+            no_progress_ui=parsed_args.no_progress_ui,
+            minimal_logs=parsed_args.minimal_logs,
         )

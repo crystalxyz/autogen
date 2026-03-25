@@ -1,0 +1,12 @@
+# Downloaded datasets
+Downloads/
+
+# Generated task files
+Tasks/
+
+# Results
+Results/
+
+# Python cache
+__pycache__/
+*.pyc

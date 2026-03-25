@@ -1,3 +1,6 @@
 scenarios/*/Downloads
 scenarios/*/Tasks
 */Results
+output*
+*.sif
+kvcache-study/results/*

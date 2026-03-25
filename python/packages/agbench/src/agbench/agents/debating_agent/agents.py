@@ -1,0 +1,228 @@
+"""
+Agent implementations for multi-agent debate.
+"""
+
+from autogen_core import (
+    DefaultTopicId,
+    MessageContext,
+    RoutedAgent,
+    default_subscription,
+    message_handler,
+)
+from autogen_core.models import (
+    AssistantMessage,
+    ChatCompletionClient,
+    LLMMessage,
+    SystemMessage,
+    UserMessage,
+)
+
+from .protocol import (
+    DebateResult,
+    DebateTask,
+    DebaterRequest,
+    DomainConfig,
+    FinalDebaterResponse,
+    IntermediateDebaterResponse,
+    Judge,
+    SolutionEvaluator,
+)
+
+
+@default_subscription
+class Debater(RoutedAgent):
+    """Debater agent that generates and refines solutions through debate."""
+
+    def __init__(
+        self,
+        model_client: ChatCompletionClient,
+        domain_config: DomainConfig,
+        topic_type: str,
+        num_neighbors: int,
+        max_rounds: int,
+        debater_id: str,
+        system_prompt: str | None = None,
+    ) -> None:
+        super().__init__(f"Debater {debater_id}")
+        self._model_client = model_client
+        self._domain_config = domain_config
+        self._topic_type = topic_type
+        self._num_neighbors = num_neighbors
+        self._max_rounds = max_rounds
+        self._debater_id = debater_id
+        self._history: list[LLMMessage] = []
+        self._buffer: dict[int, list[IntermediateDebaterResponse]] = {}
+        self._round = 0
+
+        # Use custom system prompt if provided, otherwise use domain default
+        prompt = system_prompt if system_prompt is not None else domain_config.get_system_prompt()
+        self._system_messages = [SystemMessage(content=prompt)]
+
+    @message_handler
+    async def handle_request(self, message: DebaterRequest, ctx: MessageContext) -> None:
+        print(f"\n{'='*60}")
+        print(f"[{self._debater_id}] Round {self._round + 1}/{self._max_rounds}")
+        print(f"{'='*60}")
+
+        self._history.append(UserMessage(content=message.content, source="user"))
+        result = await self._model_client.create(self._system_messages + self._history)
+        response = str(result.content) if not isinstance(result.content, str) else result.content
+        self._history.append(AssistantMessage(content=response, source=self._debater_id))
+
+        solution = self._domain_config.extract_solution(response)
+        self._round += 1
+
+        print(f"[{self._debater_id}] Response:")
+        print(f"{'-'*40}")
+        print(response[:2000] + ("..." if len(response) > 2000 else ""))
+        print(f"{'-'*40}")
+        print(f"[{self._debater_id}] Extracted solution:")
+        print(solution[:1000] + ("..." if len(solution) > 1000 else ""))
+        print()
+
+        if self._round >= self._max_rounds:
+            await self.publish_message(
+                FinalDebaterResponse(solution=solution, debater_id=self._debater_id, explanation=response),
+                topic_id=DefaultTopicId(),
+            )
+        else:
+            await self.publish_message(
+                IntermediateDebaterResponse(
+                    solution=solution,
+                    explanation=response,
+                    original_task=message.original_task,
+                    round=self._round,
+                    debater_id=self._debater_id,
+                ),
+                topic_id=DefaultTopicId(type=self._topic_type),
+            )
+
+    @message_handler
+    async def handle_response(self, message: IntermediateDebaterResponse, ctx: MessageContext) -> None:
+        self._buffer.setdefault(message.round, []).append(message)
+
+        if len(self._buffer[message.round]) >= self._num_neighbors:
+            # Build refinement prompt
+            neighbor_solutions = "\n".join(
+                self._domain_config.format_solution_for_sharing(r.solution, r.debater_id)
+                for r in self._buffer[message.round]
+            )
+            prompt = self._domain_config.get_refinement_prompt_template().format(
+                neighbor_solutions=neighbor_solutions,
+                original_prompt=message.original_task.prompt,
+                round=message.round + 1,
+            )
+            self._buffer.pop(message.round)
+            await self.send_message(
+                DebaterRequest(content=prompt, original_task=message.original_task, round=message.round),
+                self.id,
+            )
+
+
+@default_subscription
+class DebateAggregator(RoutedAgent):
+    """Aggregator that orchestrates debate, judgment, and evaluation."""
+
+    def __init__(
+        self,
+        domain_config: DomainConfig,
+        judge: Judge,
+        evaluator: SolutionEvaluator,
+        num_debaters: int,
+    ) -> None:
+        super().__init__("Aggregator")
+        self._domain_config = domain_config
+        self._judge = judge
+        self._evaluator = evaluator
+        self._num_debaters = num_debaters
+        self._buffer: list[FinalDebaterResponse] = []
+        self._current_task: DebateTask | None = None
+
+    @message_handler
+    async def handle_task(self, message: DebateTask, ctx: MessageContext) -> None:
+        print(f"[Aggregator] Received task: {message.task_id}")
+        self._current_task = message
+        self._buffer.clear()
+
+        context_str = "\n".join(
+            f"{k}: {v}" for k, v in message.context.items() if not isinstance(v, str) or "\n" not in v
+        )
+        initial_prompt = self._domain_config.get_initial_prompt_template().format(
+            prompt=message.prompt,
+            context=context_str,
+        )
+
+        await self.publish_message(
+            DebaterRequest(content=initial_prompt, original_task=message, round=0),
+            topic_id=DefaultTopicId(),
+        )
+
+    @message_handler
+    async def handle_final_response(self, message: FinalDebaterResponse, ctx: MessageContext) -> None:
+        print(f"\n[Aggregator] Received final response from {message.debater_id}")
+        print(f"  Solution preview: {message.solution[:200]}..." if len(message.solution) > 200 else f"  Solution: {message.solution}")
+        self._buffer.append(message)
+
+        if len(self._buffer) >= self._num_debaters:
+            if self._current_task is None:
+                raise RuntimeError("No current task")
+
+            print(f"\n{'='*60}")
+            print(f"[Aggregator] All {self._num_debaters} solutions received")
+            print(f"{'='*60}")
+            for i, sol in enumerate(self._buffer):
+                print(f"\n--- {sol.debater_id} ---")
+                print(sol.solution[:500] + ("..." if len(sol.solution) > 500 else ""))
+
+            # Judge
+            print(f"\n{'='*60}")
+            print(f"[Aggregator] Judging ({self._judge.mode.value})")
+            print(f"{'='*60}")
+            judge_response = await self._judge.judge(self._buffer, self._current_task)
+            print(f"[Aggregator] Judge selected: {judge_response.selected_debater_id}")
+            print(f"[Aggregator] Judge reasoning: {judge_response.reasoning[:500]}..." if len(judge_response.reasoning) > 500 else f"[Aggregator] Judge reasoning: {judge_response.reasoning}")
+
+            # Evaluate
+            print(f"\n{'='*60}")
+            print("[Aggregator] Evaluating solution")
+            print(f"{'='*60}")
+            eval_result = await self._evaluator.evaluate(judge_response.solution, self._current_task)
+            print(f"[Aggregator] Evaluation result: passed={eval_result.passed}, score={eval_result.score}")
+            if eval_result.error:
+                print(f"[Aggregator] Evaluation error: {eval_result.error}")
+
+            # Publish result
+            result = DebateResult(
+                final_solution=judge_response.solution,
+                judge_mode=judge_response.mode,
+                judge_reasoning=judge_response.reasoning,
+                selected_debater_id=judge_response.selected_debater_id,
+                all_solutions=list(self._buffer),
+                evaluation_result=eval_result,
+                success=eval_result.passed,
+            )
+            await self.publish_message(result, topic_id=DefaultTopicId())
+            self._buffer.clear()
+
+
+@default_subscription
+class ResultCollector(RoutedAgent):
+    """Collects the final debate result."""
+
+    def __init__(self) -> None:
+        super().__init__("ResultCollector")
+        self.result: DebateResult | None = None
+
+    @message_handler
+    async def handle_result(self, message: DebateResult, ctx: MessageContext) -> None:
+        print(f"\n{'='*60}")
+        print(f"[ResultCollector] FINAL RESULT")
+        print(f"{'='*60}")
+        print(f"  Success: {message.success}")
+        print(f"  Judge mode: {message.judge_mode.value}")
+        print(f"  Selected debater: {message.selected_debater_id}")
+        print(f"  Final solution:")
+        print(f"{'-'*40}")
+        print(message.final_solution)
+        print(f"{'='*60}\n")
+        self.result = message

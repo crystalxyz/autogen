@@ -1,0 +1,8 @@
+# ENV_sglang.yaml
+# Environment variables for local SGLang setup
+#
+# When using a locally hosted SGLang model, we don't need OPENAI_API_KEY
+# All configuration is done through config_sglang.yaml
+
+# Empty dict to satisfy AGBench (it expects at least an empty dictionary)
+{}

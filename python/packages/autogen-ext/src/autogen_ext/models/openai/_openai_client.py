@@ -94,7 +94,7 @@ openai_init_kwargs = set(inspect.getfullargspec(AsyncOpenAI.__init__).kwonlyargs
 aopenai_init_kwargs = set(inspect.getfullargspec(AsyncAzureOpenAI.__init__).kwonlyargs)
 
 create_kwargs = set(completion_create_params.CompletionCreateParamsBase.__annotations__.keys()) | set(
-    ("timeout", "stream", "extra_body")
+    ("timeout", "stream", "extra_body", "min_tokens")  # min_tokens added for SGLang compatibility
 )
 # Only single choice allowed
 disallowed_create_args = set(["stream", "messages", "function_call", "functions", "n"])
@@ -515,6 +515,14 @@ class BaseOpenAIChatCompletionClient(ChatCompletionClient):
         create_args = self._create_args.copy()
         create_args.update(extra_create_args)
 
+        # Handle min_tokens - OpenAI SDK doesn't accept it directly, so move it to extra_body
+        # This allows SGLang and other OpenAI-compatible servers to receive it
+        if "min_tokens" in create_args:
+            min_tokens_value = create_args.pop("min_tokens")
+            if "extra_body" not in create_args:
+                create_args["extra_body"] = {}
+            create_args["extra_body"]["min_tokens"] = min_tokens_value
+
         # The response format value to use for the beta client.
         response_format_value: Optional[Type[BaseModel]] = None
 
@@ -702,6 +710,7 @@ class BaseOpenAIChatCompletionClient(ChatCompletionClient):
         if cancellation_token is not None:
             cancellation_token.link_future(future)
         result: Union[ParsedChatCompletion[BaseModel], ChatCompletion] = await future
+
         if create_params.response_format is not None:
             result = cast(ParsedChatCompletion[Any], result)
 

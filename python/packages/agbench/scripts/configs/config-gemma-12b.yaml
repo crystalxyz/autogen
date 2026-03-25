@@ -1,0 +1,27 @@
+
+# Example configuration for run_bench.py
+# Modify this file to match your setup
+
+servers:
+  - model: "google/gemma-3-12b-it"
+    port: 40013
+    tp: 1
+    mem_fraction: 0.5
+    device: 0
+    # max_tokens: 3000
+    # min_tokens: 3000
+    # extra_body:
+    #   chat_template_kwargs:
+    #     enable_thinking: false
+
+
+benchmarks:
+  - name: "humaneval_gemma_12b"
+    scenario_file: "benchmarks/HumanEval/Tasks/human_eval_AgentChat.jsonl"
+    server_port: 40013
+    repeat: 5
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30
+

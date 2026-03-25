@@ -1,0 +1,35 @@
+# config_sglang.yaml
+# Configuration for using local SGLang instead of OpenAI
+#
+# This configuration points to a locally hosted SGLang server
+# running at http://0.0.0.0:30000/v1
+
+###############################
+# SGLang model configuration  #
+###############################
+
+# Define model client anchors
+qwen3_client: &qwen3_client
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-1.7b
+    base_url: http://0.0.0.0:30005/v1
+    api_key: EMPTY
+    # max_tokens: 1000  # Maximum tokens to generate
+    # min_tokens: 10    # Minimum tokens to generate
+    # stream_options:
+    #   include_usage: true  # Enable token usage in streaming mode
+    model_info:
+      family: qwen3
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+    # extra_body:
+    #   chat_template_kwargs:
+    #     enable_thinking: false
+    logprobs: true
+    top_logprobs: 20
+
+# Default model_config
+model_config: *qwen3_client
