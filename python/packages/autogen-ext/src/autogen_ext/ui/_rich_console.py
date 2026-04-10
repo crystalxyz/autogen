@@ -142,6 +142,7 @@ async def RichConsole(
                     f"Finish reason: {message.stop_reason}\n"
                     f"Total prompt tokens: {total_usage.prompt_tokens}\n"
                     f"Total completion tokens: {total_usage.completion_tokens}\n"
+                    f"Total reasoning tokens: {total_usage.reasoning_tokens}\n"
                     f"Duration: {duration:.2f} seconds\n"
                 )
                 await _aprint_panel(rich_console, output, "Summary")
@@ -156,10 +157,11 @@ async def RichConsole(
             if message.chat_message.models_usage:
                 if output_stats:
                     text_parts.append(
-                        f"[Prompt tokens: {message.chat_message.models_usage.prompt_tokens}, Completion tokens: {message.chat_message.models_usage.completion_tokens}]"
+                        f"[Prompt tokens: {message.chat_message.models_usage.prompt_tokens}, Completion tokens: {message.chat_message.models_usage.completion_tokens}, Reasoning tokens: {message.chat_message.models_usage.reasoning_tokens}]"
                     )
                 total_usage.completion_tokens += message.chat_message.models_usage.completion_tokens
                 total_usage.prompt_tokens += message.chat_message.models_usage.prompt_tokens
+                total_usage.reasoning_tokens += message.chat_message.models_usage.reasoning_tokens
 
             await _aprint_message_content(
                 rich_console,
@@ -176,6 +178,7 @@ async def RichConsole(
                     f"Number of inner messages: {num_inner_messages}\n"
                     f"Total prompt tokens: {total_usage.prompt_tokens}\n"
                     f"Total completion tokens: {total_usage.completion_tokens}\n"
+                    f"Total reasoning tokens: {total_usage.reasoning_tokens}\n"
                     f"Duration: {duration:.2f} seconds\n"
                 )
                 await _aprint_panel(rich_console, output, "Summary")
@@ -198,10 +201,11 @@ async def RichConsole(
             if message.models_usage:
                 if output_stats:
                     text_parts.append(
-                        f"[Prompt tokens: {message.models_usage.prompt_tokens}, Completion tokens: {message.models_usage.completion_tokens}]"
+                        f"[Prompt tokens: {message.models_usage.prompt_tokens}, Completion tokens: {message.models_usage.completion_tokens}, Reasoning tokens: {message.models_usage.reasoning_tokens}]"
                     )
                 total_usage.completion_tokens += message.models_usage.completion_tokens
                 total_usage.prompt_tokens += message.models_usage.prompt_tokens
+                total_usage.reasoning_tokens += message.models_usage.reasoning_tokens
 
             await _aprint_message_content(
                 rich_console,

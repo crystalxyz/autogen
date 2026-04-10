@@ -238,6 +238,7 @@ def _add_usage(usage1: RequestUsage, usage2: RequestUsage) -> RequestUsage:
     return RequestUsage(
         prompt_tokens=usage1.prompt_tokens + usage2.prompt_tokens,
         completion_tokens=usage1.completion_tokens + usage2.completion_tokens,
+        reasoning_tokens=usage1.reasoning_tokens + usage2.reasoning_tokens,
     )
 
 
@@ -720,6 +721,7 @@ class BaseOpenAIChatCompletionClient(ChatCompletionClient):
             # TODO backup token counting
             prompt_tokens=getattr(result.usage, "prompt_tokens", 0) if result.usage is not None else 0,
             completion_tokens=getattr(result.usage, "completion_tokens", 0) if result.usage is not None else 0,
+            reasoning_tokens=(getattr(result.usage, "reasoning_tokens", 0) or 0) if result.usage is not None else 0,
         )
 
         logger.info(
@@ -1025,12 +1027,15 @@ class BaseOpenAIChatCompletionClient(ChatCompletionClient):
         if chunk and chunk.usage:
             prompt_tokens = chunk.usage.prompt_tokens
             completion_tokens = chunk.usage.completion_tokens
+            reasoning_tokens = getattr(chunk.usage, "reasoning_tokens", 0) or 0
         else:
             prompt_tokens = 0
             completion_tokens = 0
+            reasoning_tokens = 0
         usage = RequestUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
 
         # Detect whether it is a function call or just text.

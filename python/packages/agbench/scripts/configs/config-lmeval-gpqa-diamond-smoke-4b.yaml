@@ -1,0 +1,44 @@
+# =============================================================================
+# 4-question smoke evaluation of LMEvalAgent on GPQA-Diamond + Qwen3-4B.
+# Same shape as config-lmeval-gpqa-diamond-4b.yaml but limit=4 (set in
+# the JSONL substitution) so the entire pipeline finishes in 5-10 minutes
+# instead of 90+. Use this to verify correctness end-to-end before
+# launching the full 198-question run.
+#
+# Submit:
+#   sbatch scripts/start_lmeval_long.sh \
+#       scripts/configs/config-lmeval-gpqa-diamond-smoke-4b.yaml \
+#       outputs/lmeval-gpqa-diamond-smoke-4b
+#
+# Or via the wrapper:
+#   bash scripts/submit_lmeval_gpqa_diamond.sh smoke
+#
+# Uses port 40007 (vs 40006 for the full run) so smoke and full could in
+# principle run on the same node without colliding.
+# =============================================================================
+
+servers:
+  - model: "Qwen/Qwen3-4B"
+    port: 40007
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    log_requests: false
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+    extra_args:
+      - "--tool-call-parser"
+      - "qwen"
+
+benchmarks:
+  - name: "lmeval_gpqa_diamond_smoke_qwen3_4b"
+    scenario_file: "benchmarks/LMEval/Tasks/gpqa_diamond_smoke4.jsonl"
+    server_port: 40007
+    num_concurrent: 1
+    repeat: 1
+    minimal_logs: false
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

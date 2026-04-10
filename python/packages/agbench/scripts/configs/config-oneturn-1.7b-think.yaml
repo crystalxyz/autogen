@@ -1,0 +1,22 @@
+
+# One-turn baseline: Qwen3-1.7B thinking mode
+
+servers:
+  - model: "Qwen/Qwen3-1.7B"
+    port: 40002
+    tp: 1
+    mem_fraction: 0.8
+    device: 0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+benchmarks:
+  - name: "humaneval_qwen3_1.7b_think"
+    scenario_file: "benchmarks/HumanEval/Tasks/human_eval_AgentChat.jsonl"
+    server_port: 40002
+    repeat: 3
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

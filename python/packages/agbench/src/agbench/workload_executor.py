@@ -40,6 +40,7 @@ def _cleanup_logs(results_dir: str) -> None:
 
     Files to keep:
     - console_log.txt: The main execution log
+    - prompt.txt: The task prompt (kept for traceability)
 
     All other files (scenario.py, config.yaml, requirements.txt, etc.) are removed
     as they are just copies of templates and not needed for analysis.
@@ -48,7 +49,7 @@ def _cleanup_logs(results_dir: str) -> None:
         results_dir: Path to the results directory to clean up
     """
     # Files to keep
-    keep_files = {"console_log.txt"}
+    keep_files = {"console_log.txt", "prompt.txt"}
 
     try:
         # Get all files in the directory

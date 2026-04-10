@@ -1,0 +1,13 @@
+# config.yaml
+#
+# The contents of this file will be copied into the 'config.yaml' file of
+# every expanded Task, just prior to running the scenario. This provides a
+# good place to store model or other configurations important for the scenario.
+
+###############################
+# Open AI model configuration #
+###############################
+model_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: gpt-4o

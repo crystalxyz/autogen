@@ -1,0 +1,73 @@
+# =============================================================================
+# Full GPQA-Diamond evaluation with LMEvalAgent (ReAct + tools)
+# on Qwen3-4B served via SGLang.
+#
+# Submit:
+#   sbatch scripts/start.sh \
+#       scripts/configs/config-lmeval-gpqa-diamond-4b.yaml \
+#       outputs/lmeval-gpqa-diamond-4b
+#
+# Or via the wrapper script (preferred):
+#   bash scripts/submit_lmeval_gpqa_diamond.sh
+#
+# Requirements (one-time, on the compute node's conda env):
+#   - sglang-env conda env active
+#   - sympy, pint, scipy, lm_eval[api] installed
+#       pip install 'lm_eval[api]' sympy pint
+#       (scipy is already in the sglang dependency tree)
+#   - Idavidrein/gpqa license accepted on the HF account that owns HF_TOKEN
+#     (https://huggingface.co/datasets/Idavidrein/gpqa)
+#   - HF_TOKEN exported into the job environment. start.sh hardcodes one
+#     and also sources python/packages/agbench/.env if present, so put your
+#     real token in that .env file:
+#         echo 'HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxx' > python/packages/agbench/.env
+#
+# Output:
+#   outputs/lmeval-gpqa-diamond-4b/
+#     ├── logs/                                       # sglang server logs
+#     ├── config_lmeval_gpqa_diamond_qwen3_4b.yaml    # rewritten config (base_url injected)
+#     ├── benchmark_lmeval_gpqa_diamond_qwen3_4b.log  # agbench-run subprocess stdout
+#     └── Results/<run_name>/<scenario>/<task_id>/0/
+#         ├── console_log.txt
+#         └── lm_eval_result.json
+# =============================================================================
+
+servers:
+  - model: "Qwen/Qwen3-4B"
+    port: 40006
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    # Optional: enable to capture every chat-completions request/response
+    # for trajectory analysis. Costs disk + IO; off by default.
+    log_requests: false
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+    extra_args:
+      # Required so SGLang parses Qwen3's <tool_call>...</tool_call> blocks
+      # into structured OpenAI tool_calls in the response body. Without
+      # this, the LMEvalAgent's text-recovery layer catches `final_answer`
+      # but every intermediate tool call (python_exec, calculator,
+      # physical_constant, unit_convert) silently never executes.
+      # Note: 'qwen25' is the older alias for the same parser; modern
+      # SGLang prefers 'qwen' (it warns on the old name but still accepts).
+      - "--tool-call-parser"
+      - "qwen"
+
+benchmarks:
+  - name: "lmeval_gpqa_diamond_qwen3_4b"
+    scenario_file: "benchmarks/LMEval/Tasks/gpqa_diamond_full.jsonl"
+    server_port: 40006
+    num_concurrent: 1   # serial across the 198 questions
+    repeat: 1
+    # IMPORTANT: keep this false. agbench's --minimal-logs cleanup keeps
+    # ONLY console_log.txt and would wipe our lm_eval_result.json. The
+    # LMEvalAgent template's scenario_finalize.sh already trims the task
+    # dir down to {console_log.txt, lm_eval_result.json} on its own, so
+    # we don't need agbench's cleanup pass.
+    minimal_logs: false
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

@@ -1,0 +1,17 @@
+model_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-4B
+    base_url: http://localhost:30004/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: qwen
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true

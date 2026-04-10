@@ -1,0 +1,16 @@
+# config.yaml
+#
+# The contents of this file are copied into the 'config.yaml' of every
+# expanded LMEval task just before execution. `run_bench.py` rewrites the
+# `config.model_config.config.base_url` (and `model`) to point at the
+# SGLang server it launched, so scenario.py always talks to the intended
+# backend. Keep the schema identical to other benchmarks
+# (e.g. benchmarks/HumanEval/config.yaml) so a single run_bench.py config
+# can drive both agentic and lm-eval benchmarks.
+
+model_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: gpt-4o
+    # base_url is injected by run_bench.py's generate_agbench_config
+    # api_key: EMPTY

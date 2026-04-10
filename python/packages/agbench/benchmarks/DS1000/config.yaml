@@ -1,0 +1,23 @@
+# config.yaml
+#
+# The contents of this file will be copied into the 'config.yaml' file of
+# every expanded Task, just prior to running the scenario. This provides a
+# good place to store model or other configurations important for the scenario.
+
+model_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    api_key: EMPTY
+    base_url: http://0.0.0.0:30004/v1
+    model: qwen/qwen3-4B
+    model_info:
+      family: Qwen
+      function_calling: true
+      json_output: true
+      structured_output: true
+      vision: false
+    stream_options:
+      include_usage: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true

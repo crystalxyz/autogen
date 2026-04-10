@@ -1,0 +1,4 @@
+pyyaml
+lm_eval[api]
+/autogen_python/packages/autogen-core
+/autogen_python/packages/autogen-ext[openai]

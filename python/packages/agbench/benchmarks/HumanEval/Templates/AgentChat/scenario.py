@@ -63,10 +63,22 @@ async def main() -> None:
 
     # Run the team and stream messages to the console.
     stream = agent_team.run_stream(task=task)
-    await Console(stream)
+    task_result = await Console(stream)
 
     end_time = time.time()
     print(f"AgentChat execution time: {end_time - start_time:.2f} seconds")
+
+    # Print per-turn token usage summary.
+    turn = 0
+    for msg in task_result.messages:
+        if msg.models_usage is not None:
+            turn += 1
+            print(
+                f"[token_usage] turn={turn} source={msg.source}"
+                f" prompt_tokens={msg.models_usage.prompt_tokens}"
+                f" completion_tokens={msg.models_usage.completion_tokens}"
+                f" reasoning_tokens={msg.models_usage.reasoning_tokens}"
+            )
 
 
 asyncio.run(main())

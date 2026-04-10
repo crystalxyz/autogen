@@ -1,0 +1,30 @@
+
+# Example agbench config for the Harbor benchmark using the ShellLoopAgent
+# template. Points at a local SGLang server; switch the JSONL under
+# `benchmarks` to a different (template, adapter) combo as needed.
+
+servers:
+  - model: "qwen/qwen3-4B"
+    port: 30004
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+benchmarks:
+  - name: "harbor_aime_shell_loop_qwen3_4b"
+    scenario_file: "benchmarks/Harbor/Tasks/harbor_aime_ShellLoopAgent.jsonl"
+    server_port: 30004
+    repeat: 1
+
+harbor:
+  cli: "/home/xz957/.conda/envs/harbor-env/bin/harbor"
+  agent_import_path: "agent:ShellLoopAgent"
+  image: "docker://python:3.12-slim"
+  model_prefix: ""
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

@@ -273,6 +273,8 @@ class SGLangServer:
             str(self.config.dp),
             "--mem-fraction-static",
             str(self.config.mem_fraction),
+            "--reasoning-parser",
+            "qwen3"
         ]
 
         # Enable request logging for trajectory analysis

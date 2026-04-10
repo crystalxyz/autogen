@@ -1,0 +1,33 @@
+
+# Example configuration for running the Harbor framework template against a
+# local SGLang server. Mirrors config-4b.yaml; the only difference is the
+# scenario_file (Harbor template) plus a top-level `harbor:` block that the
+# Harbor scenario.py shim reads.
+
+servers:
+  - model: "Qwen/Qwen3-4B"
+    port: 40003
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+benchmarks:
+  - name: "humaneval_harbor_qwen3_4b"
+    scenario_file: "benchmarks/HumanEval/Tasks/human_eval_Harbor.jsonl"
+    server_port: 40003
+    repeat: 1
+
+# Harbor-specific knobs forwarded to benchmarks/HumanEval/Templates/Harbor/scenario.py.
+harbor:
+  cli: "/home/xz957/.conda/envs/harbor-env/bin/harbor"
+  agent: "mini-swe-agent"
+  image: "docker://python:3.12-slim"
+  extra_args: []
+  env_passthrough: []
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

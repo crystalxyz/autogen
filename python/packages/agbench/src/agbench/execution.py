@@ -15,8 +15,12 @@ from .hooks import Event, EventType, get_hook_manager
 # Get the path to the template directory
 BASE_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "template")
 
-# Default task timeout in seconds
-TASK_TIMEOUT = 1200
+# Default task timeout in seconds. Override at runtime by exporting
+# AGBENCH_TASK_TIMEOUT (e.g. AGBENCH_TASK_TIMEOUT=14400 for 4 hours)
+# in the environment that invokes agbench. Useful for long-running
+# benchmarks like full-set lm-eval tasks where one scenario.py invocation
+# may need to process hundreds of questions sequentially.
+TASK_TIMEOUT = int(os.environ.get("AGBENCH_TASK_TIMEOUT", 1200))
 
 
 def _extract_task_info(work_dir: str) -> tuple[Optional[str], Optional[int]]:

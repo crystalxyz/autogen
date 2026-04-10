@@ -6,19 +6,19 @@ servers:
   - model: "Qwen/Qwen3-4B"
     port: 40003
     tp: 1
-    mem_fraction: 0.8
+    mem_fraction: 0.9
     device: 0
     # max_tokens: 3000
     # min_tokens: 3000
     extra_body:
       chat_template_kwargs:
-        enable_thinking: false
+        enable_thinking: true
 
 benchmarks:
   - name: "humaneval_qwen3_4b"
     scenario_file: "benchmarks/HumanEval/Tasks/human_eval_AgentChat.jsonl"
     server_port: 40003
-    repeat: 5
+    repeat: 3
 
 server_startup_timeout: 600
 server_health_check_interval: 5

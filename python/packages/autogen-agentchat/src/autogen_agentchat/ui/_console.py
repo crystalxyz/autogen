@@ -124,6 +124,7 @@ async def Console(
                     f"Finish reason: {message.stop_reason}\n"
                     f"Total prompt tokens: {total_usage.prompt_tokens}\n"
                     f"Total completion tokens: {total_usage.completion_tokens}\n"
+                    f"Total reasoning tokens: {total_usage.reasoning_tokens}\n"
                     f"Duration: {duration:.2f} seconds\n"
                 )
                 await aprint(output, end="", flush=True)
@@ -142,9 +143,10 @@ async def Console(
             output = f"{'-' * 10} {message.chat_message.source} {'-' * 10}\n{final_content}\n"
             if message.chat_message.models_usage:
                 if output_stats:
-                    output += f"[Prompt tokens: {message.chat_message.models_usage.prompt_tokens}, Completion tokens: {message.chat_message.models_usage.completion_tokens}]\n"
+                    output += f"[Prompt tokens: {message.chat_message.models_usage.prompt_tokens}, Completion tokens: {message.chat_message.models_usage.completion_tokens}, Reasoning tokens: {message.chat_message.models_usage.reasoning_tokens}]\n"
                 total_usage.completion_tokens += message.chat_message.models_usage.completion_tokens
                 total_usage.prompt_tokens += message.chat_message.models_usage.prompt_tokens
+                total_usage.reasoning_tokens += message.chat_message.models_usage.reasoning_tokens
             await aprint(output, end="", flush=True)
 
             # Print summary.
@@ -158,6 +160,7 @@ async def Console(
                     f"Number of inner messages: {num_inner_messages}\n"
                     f"Total prompt tokens: {total_usage.prompt_tokens}\n"
                     f"Total completion tokens: {total_usage.completion_tokens}\n"
+                    f"Total reasoning tokens: {total_usage.reasoning_tokens}\n"
                     f"Duration: {duration:.2f} seconds\n"
                 )
                 await aprint(output, end="", flush=True)
@@ -191,12 +194,13 @@ async def Console(
                 if message.models_usage:
                     if output_stats:
                         await aprint(
-                            f"[Prompt tokens: {message.models_usage.prompt_tokens}, Completion tokens: {message.models_usage.completion_tokens}]",
+                            f"[Prompt tokens: {message.models_usage.prompt_tokens}, Completion tokens: {message.models_usage.completion_tokens}, Reasoning tokens: {message.models_usage.reasoning_tokens}]",
                             end="\n",
                             flush=True,
                         )
                     total_usage.completion_tokens += message.models_usage.completion_tokens
                     total_usage.prompt_tokens += message.models_usage.prompt_tokens
+                    total_usage.reasoning_tokens += message.models_usage.reasoning_tokens
 
     if last_processed is None:
         raise ValueError("No TaskResult or Response was processed.")

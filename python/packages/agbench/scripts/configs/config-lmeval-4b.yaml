@@ -1,0 +1,47 @@
+# Example run_bench.py config for the LMEval benchmark.
+# Runs lm-evaluation-harness tasks serially against an SGLang-hosted
+# Qwen3-4B. Each agbench task is one lm-eval task; lm-eval is forced to
+# num_concurrent=1 and batch_size=1 inside scenario.py so the whole run
+# sends one request at a time.
+
+servers:
+  - model: "Qwen/Qwen3-4B"
+    port: 40003
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    log_requests: false    # flip to true to verify serial execution
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+benchmarks:
+  # Direct (no-agent) LLM on lm-eval tasks.
+  - name: "lmeval_qwen3_4b_smoke"
+    scenario_file: "benchmarks/LMEval/Tasks/lm_eval_smoke.jsonl"
+    server_port: 40003
+    num_concurrent: 1      # serial across lm-eval tasks
+    repeat: 1
+
+  # Agent-wrapped (coder + code executor, multi-turn) on lm-eval tasks.
+  - name: "lmeval_agent_qwen3_4b_smoke"
+    scenario_file: "benchmarks/LMEval/Tasks/lm_eval_agent_smoke.jsonl"
+    server_port: 40003
+    num_concurrent: 1
+    repeat: 1
+
+  # Uncomment for the full task lists.
+  # - name: "lmeval_qwen3_4b_default"
+  #   scenario_file: "benchmarks/LMEval/Tasks/lm_eval_default.jsonl"
+  #   server_port: 40003
+  #   num_concurrent: 1
+  #   repeat: 1
+  # - name: "lmeval_agent_qwen3_4b_default"
+  #   scenario_file: "benchmarks/LMEval/Tasks/lm_eval_agent_default.jsonl"
+  #   server_port: 40003
+  #   num_concurrent: 1
+  #   repeat: 1
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30
