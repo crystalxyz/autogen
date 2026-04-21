@@ -1,0 +1,23 @@
+# HotpotQA SelectorGroupChat: Qwen/Qwen3-1.7B thinking
+
+servers:
+  - model: "Qwen/Qwen3-1.7B"
+    port: 30012
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+benchmarks:
+  - name: "hotpotqa_selector_qwen3_1.7b_t"
+    scenario_file: "benchmarks/HotpotQA/Tasks/hotpotqa_validation_fullwiki__SelectorGroupChat_sanity200_seed42.jsonl"
+    config_template: "scripts/configs/config-hotpotqa-selector-template.yaml"
+    server_port: 30012
+    num_concurrent: 2
+    repeat: 1
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

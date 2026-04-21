@@ -1,0 +1,24 @@
+# HotpotQA SelectorGroupChat, Qwen3-4B non-thinking, port 30004.
+# Direct-run version (no run_bench.py) — model/base_url are concrete, not placeholders.
+
+model_config: &client
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-4B
+    base_url: http://0.0.0.0:30004/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+    model_info:
+      family: Qwen
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+
+orchestrator_client: *client
+coder_client: *client
+web_surfer_client: *client

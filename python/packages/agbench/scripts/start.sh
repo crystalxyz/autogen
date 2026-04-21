@@ -24,6 +24,4 @@ if [ -f "$SCRIPT_DIR/../.env" ]; then
 fi
 export HF_TOKEN="${HF_TOKEN:?Error: HF_TOKEN not set. Create python/packages/agbench/.env with HF_TOKEN=...}"
 
-python scripts/run_bench.py --config "$1" --work-dir "$2"
-
-# --nodelist=yosemite
+python scripts/runners/run_bench.py --config "$1" --work-dir "$2"

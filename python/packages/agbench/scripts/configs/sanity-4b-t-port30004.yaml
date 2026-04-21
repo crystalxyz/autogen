@@ -1,0 +1,25 @@
+# Sanity test config: Qwen3-4B thinking on port 30004.
+# Used to verify the LLMTermination fix (skip termination until at least one
+# agent message) and the tightened termination prompt.
+
+model_config: &client
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: qwen/qwen3-4B
+    base_url: http://0.0.0.0:30004/v1
+    api_key: EMPTY
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+    stream_options:
+      include_usage: true
+    model_info:
+      family: Qwen
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+
+orchestrator_client: *client
+coder_client: *client
+web_surfer_client: *client

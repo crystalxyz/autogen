@@ -1,0 +1,43 @@
+# Three-turn benchmark configuration
+# Turn 1: 4nt (port 31142)
+# Turn 2: 8nt (port 31143)
+# Turn 3: 8t (port 31144)
+
+servers:
+- model: Qwen/Qwen3-4B
+  port: 31142
+  tp: 1
+  mem_fraction: 0.95
+  device: 0
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+- model: Qwen/Qwen3-8B
+  port: 31143
+  tp: 1
+  mem_fraction: 0.95
+  device: 1
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+- model: Qwen/Qwen3-8B
+  port: 31144
+  tp: 1
+  mem_fraction: 0.95
+  device: 2
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+benchmarks:
+- name: humaneval_threeturn_4b_8b_8b
+  scenario_file: benchmarks/HumanEval/Tasks/human_eval_AgentChatCopyNoCtx.jsonl
+  server_port: 31142
+  config_template: scripts/configs/config-threeturn-template.yaml
+  server_port_map:
+    model_config_turn1: 31142
+    model_config_turn2: 31143
+    model_config_turn3: 31144
+  repeat: 3
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

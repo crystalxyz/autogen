@@ -55,13 +55,15 @@ async def main() -> None:
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    # Load up to 3 turn configs; pre-create clients before timing starts
+    # Load turn configs; pre-create clients before timing starts
     turn_clients = [
         ("turn1", ChatCompletionClient.load_component(config["model_config_turn1"])),
         ("turn2", ChatCompletionClient.load_component(config["model_config_turn2"])),
     ]
-    if "model_config_turn3" in config:
-        turn_clients.append(("turn3", ChatCompletionClient.load_component(config["model_config_turn3"])))
+    for turn_idx in range(3, 10):
+        key = f"model_config_turn{turn_idx}"
+        if key in config:
+            turn_clients.append((f"turn{turn_idx}", ChatCompletionClient.load_component(config[key])))
 
     start_time = time.time()
 

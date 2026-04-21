@@ -1,0 +1,53 @@
+# Four-turn benchmark configuration
+# Turn 1: 4nt (port 31212)
+# Turn 2: 8nt (port 31213)
+# Turn 3: 14nt (port 31214)
+# Turn 4: 4t (port 31215)
+
+servers:
+- model: Qwen/Qwen3-4B
+  port: 31212
+  tp: 1
+  mem_fraction: 0.95
+  device: 0
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+- model: Qwen/Qwen3-8B
+  port: 31213
+  tp: 1
+  mem_fraction: 0.95
+  device: 1
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+- model: Qwen/Qwen3-14B
+  port: 31214
+  tp: 1
+  mem_fraction: 0.95
+  device: 2
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+- model: Qwen/Qwen3-4B
+  port: 31215
+  tp: 1
+  mem_fraction: 0.95
+  device: 3
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+benchmarks:
+- name: humaneval_fourturn_4b_8b_14b_4b
+  scenario_file: benchmarks/HumanEval/Tasks/human_eval_AgentChatCopyNoCtx.jsonl
+  server_port: 31212
+  config_template: scripts/configs/config-fourturn-template.yaml
+  server_port_map:
+    model_config_turn1: 31212
+    model_config_turn2: 31213
+    model_config_turn3: 31214
+    model_config_turn4: 31215
+  repeat: 3
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

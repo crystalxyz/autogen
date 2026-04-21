@@ -1,0 +1,269 @@
+Best Model Config per Timeout Budget
+================================================================================
+Generated from 94 total configs (all available runs)
+
+
+=== Best Config per Turn Count at Each Timeout ===
+
+--- Timeout = 10s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    8b-nothink                                 81.1%      82.1%
+  2T    4nt-8nt                                    88.7%      90.9%
+  3T    4nt-8nt-4t                                 87.0%      96.7%
+  4T    4nt-8nt-14nt-4t                            86.2%      98.2%
+  >> OVERALL BEST: [2T] 4nt-8nt at 88.7%
+
+--- Timeout = 15s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                83.0%      90.1%
+  2T    4nt-8nt                                    90.5%      90.9%
+  3T    4nt-8nt-14nt                               90.0%      94.7%
+  4T    4nt-8nt-14nt-14t                           91.5%      98.8%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-14t at 91.5%
+
+--- Timeout = 20s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                88.3%      90.1%
+  2T    4nt-14nt                                   92.1%      93.6%
+  3T    4nt-8nt-14nt                               93.5%      94.7%
+  4T    4nt-8nt-14nt-14t                           93.7%      98.8%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-14t at 93.7%
+
+--- Timeout = 25s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                89.5%      90.1%
+  2T    4nt-14nt                                   92.7%      93.6%
+  3T    4nt-8nt-14nt                               94.1%      94.7%
+  4T    4nt-8nt-14nt-14t                           94.3%      98.8%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-14t at 94.3%
+
+--- Timeout = 30s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                89.8%      90.1%
+  2T    14nt-1.7t                                  93.0%      94.2%
+  3T    4nt-14nt-4t                                94.5%      96.7%
+  4T    4nt-8nt-14nt-14t                           94.9%      98.8%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-14t at 94.9%
+
+--- Timeout = 35s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                89.9%      90.1%
+  2T    4nt-14nt                                   93.3%      93.6%
+  3T    4nt-14nt-4t                                94.5%      96.7%
+  4T    4nt-8nt-14nt-4t                            95.5%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 95.5%
+
+--- Timeout = 40s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.0%      90.1%
+  2T    14nt-4t                                    93.6%      97.0%
+  3T    4nt-14nt-4t                                94.7%      96.7%
+  4T    4nt-8nt-14nt-4t                            95.7%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 95.7%
+
+--- Timeout = 45s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.1%      90.1%
+  2T    14nt-4t                                    94.5%      97.0%
+  3T    4nt-14nt-4t                                94.9%      96.7%
+  4T    4nt-8nt-14nt-4t                            95.7%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 95.7%
+
+--- Timeout = 50s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.1%      90.1%
+  2T    14nt-4t                                    94.8%      97.0%
+  3T    4nt-14nt-4t                                94.9%      96.7%
+  4T    4nt-8nt-14nt-4t                            95.9%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 95.9%
+
+--- Timeout = 55s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.1%      90.1%
+  2T    14nt-4t                                    94.8%      97.0%
+  3T    4nt-14nt-4t                                94.9%      96.7%
+  4T    4nt-8nt-14nt-4t                            95.9%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 95.9%
+
+--- Timeout = 60s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.1%      90.1%
+  2T    14nt-4t                                    95.1%      97.0%
+  3T    4nt-14nt-4t                                95.1%      96.7%
+  4T    4nt-8nt-14nt-4t                            96.3%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 96.3%
+
+--- Timeout = 65s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.1%      90.1%
+  2T    14nt-4t                                    95.7%      97.0%
+  3T    4nt-14nt-4t                                95.3%      96.7%
+  4T    4nt-8nt-14nt-4t                            96.7%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 96.7%
+
+--- Timeout = 70s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    14b-nothink                                90.1%      90.1%
+  2T    14nt-4t                                    95.7%      97.0%
+  3T    4nt-14nt-4t                                95.5%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.0%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.0%
+
+--- Timeout = 75s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   91.1%      93.7%
+  2T    14nt-4t                                    95.7%      97.0%
+  3T    4nt-14nt-4t                                95.9%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.0%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.0%
+
+--- Timeout = 80s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   91.3%      93.7%
+  2T    14nt-4t                                    96.3%      97.0%
+  3T    4nt-14nt-4t                                96.1%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.2%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.2%
+
+--- Timeout = 85s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   91.5%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.1%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.2%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.2%
+
+--- Timeout = 90s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   91.9%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.3%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.2%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.2%
+
+--- Timeout = 95s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   91.9%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.3%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.2%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.2%
+
+--- Timeout = 100s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   92.5%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.3%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.4%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.4%
+
+--- Timeout = 105s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   92.5%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.3%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.8%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.8%
+
+--- Timeout = 110s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   93.1%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.3%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.8%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.8%
+
+--- Timeout = 115s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   93.3%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.5%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.8%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.8%
+
+--- Timeout = 120s ---
+  Type  Best Config                                  Acc  Final Acc
+  -----------------------------------------------------------------
+  1T    4b-think                                   93.3%      93.7%
+  2T    14nt-4t                                    96.6%      97.0%
+  3T    4nt-14nt-4t                                96.5%      96.7%
+  4T    4nt-8nt-14nt-4t                            97.8%      98.2%
+  >> OVERALL BEST: [4T] 4nt-8nt-14nt-4t at 97.8%
+
+
+=== Summary Table ===
+
+  Timeout                    Best 1T                    Best 2T                    Best 3T                    Best 4T                    Overall Best
+  -------------------------------------------------------------------------------------------------------------------------------------------------
+      10s           8b-nothink 81.1%              4nt-8nt 88.7%           4nt-8nt-4t 87.0%      4nt-8nt-14nt-4t 86.2%  [2T]              4nt-8nt 88.7%
+      15s          14b-nothink 83.0%              4nt-8nt 90.5%         4nt-8nt-14nt 90.0%     4nt-8nt-14nt-14t 91.5%  [4T]     4nt-8nt-14nt-14t 91.5%
+      20s          14b-nothink 88.3%             4nt-14nt 92.1%         4nt-8nt-14nt 93.5%     4nt-8nt-14nt-14t 93.7%  [4T]     4nt-8nt-14nt-14t 93.7%
+      25s          14b-nothink 89.5%             4nt-14nt 92.7%         4nt-8nt-14nt 94.1%     4nt-8nt-14nt-14t 94.3%  [4T]     4nt-8nt-14nt-14t 94.3%
+      30s          14b-nothink 89.8%            14nt-1.7t 93.0%          4nt-14nt-4t 94.5%     4nt-8nt-14nt-14t 94.9%  [4T]     4nt-8nt-14nt-14t 94.9%
+      35s          14b-nothink 89.9%             4nt-14nt 93.3%          4nt-14nt-4t 94.5%      4nt-8nt-14nt-4t 95.5%  [4T]      4nt-8nt-14nt-4t 95.5%
+      40s          14b-nothink 90.0%              14nt-4t 93.6%          4nt-14nt-4t 94.7%      4nt-8nt-14nt-4t 95.7%  [4T]      4nt-8nt-14nt-4t 95.7%
+      45s          14b-nothink 90.1%              14nt-4t 94.5%          4nt-14nt-4t 94.9%      4nt-8nt-14nt-4t 95.7%  [4T]      4nt-8nt-14nt-4t 95.7%
+      50s          14b-nothink 90.1%              14nt-4t 94.8%          4nt-14nt-4t 94.9%      4nt-8nt-14nt-4t 95.9%  [4T]      4nt-8nt-14nt-4t 95.9%
+      55s          14b-nothink 90.1%              14nt-4t 94.8%          4nt-14nt-4t 94.9%      4nt-8nt-14nt-4t 95.9%  [4T]      4nt-8nt-14nt-4t 95.9%
+      60s          14b-nothink 90.1%              14nt-4t 95.1%          4nt-14nt-4t 95.1%      4nt-8nt-14nt-4t 96.3%  [4T]      4nt-8nt-14nt-4t 96.3%
+      65s          14b-nothink 90.1%              14nt-4t 95.7%          4nt-14nt-4t 95.3%      4nt-8nt-14nt-4t 96.7%  [4T]      4nt-8nt-14nt-4t 96.7%
+      70s          14b-nothink 90.1%              14nt-4t 95.7%          4nt-14nt-4t 95.5%      4nt-8nt-14nt-4t 97.0%  [4T]      4nt-8nt-14nt-4t 97.0%
+      75s             4b-think 91.1%              14nt-4t 95.7%          4nt-14nt-4t 95.9%      4nt-8nt-14nt-4t 97.0%  [4T]      4nt-8nt-14nt-4t 97.0%
+      80s             4b-think 91.3%              14nt-4t 96.3%          4nt-14nt-4t 96.1%      4nt-8nt-14nt-4t 97.2%  [4T]      4nt-8nt-14nt-4t 97.2%
+      85s             4b-think 91.5%              14nt-4t 96.6%          4nt-14nt-4t 96.1%      4nt-8nt-14nt-4t 97.2%  [4T]      4nt-8nt-14nt-4t 97.2%
+      90s             4b-think 91.9%              14nt-4t 96.6%          4nt-14nt-4t 96.3%      4nt-8nt-14nt-4t 97.2%  [4T]      4nt-8nt-14nt-4t 97.2%
+      95s             4b-think 91.9%              14nt-4t 96.6%          4nt-14nt-4t 96.3%      4nt-8nt-14nt-4t 97.2%  [4T]      4nt-8nt-14nt-4t 97.2%
+     100s             4b-think 92.5%              14nt-4t 96.6%          4nt-14nt-4t 96.3%      4nt-8nt-14nt-4t 97.4%  [4T]      4nt-8nt-14nt-4t 97.4%
+     105s             4b-think 92.5%              14nt-4t 96.6%          4nt-14nt-4t 96.3%      4nt-8nt-14nt-4t 97.8%  [4T]      4nt-8nt-14nt-4t 97.8%
+     110s             4b-think 93.1%              14nt-4t 96.6%          4nt-14nt-4t 96.3%      4nt-8nt-14nt-4t 97.8%  [4T]      4nt-8nt-14nt-4t 97.8%
+     115s             4b-think 93.3%              14nt-4t 96.6%          4nt-14nt-4t 96.5%      4nt-8nt-14nt-4t 97.8%  [4T]      4nt-8nt-14nt-4t 97.8%
+     120s             4b-think 93.3%              14nt-4t 96.6%          4nt-14nt-4t 96.5%      4nt-8nt-14nt-4t 97.8%  [4T]      4nt-8nt-14nt-4t 97.8%
+
+
+=== Winning Turn Count per Timeout ===
+
+   10s:  [2T] 4nt-8nt                              88.7%   (runner-up: [3T] 4nt-8nt-4t 87.0%, gap=+1.7%) << NEW LEADER
+   15s:  [4T] 4nt-8nt-14nt-14t                     91.5%   (runner-up: [2T] 4nt-8nt 90.5%, gap=+0.9%) << NEW LEADER
+   20s:  [4T] 4nt-8nt-14nt-14t                     93.7%   (runner-up: [3T] 4nt-8nt-14nt 93.5%, gap=+0.2%)
+   25s:  [4T] 4nt-8nt-14nt-14t                     94.3%   (runner-up: [3T] 4nt-8nt-14nt 94.1%, gap=+0.2%)
+   30s:  [4T] 4nt-8nt-14nt-14t                     94.9%   (runner-up: [3T] 4nt-14nt-4t 94.5%, gap=+0.4%)
+   35s:  [4T] 4nt-8nt-14nt-4t                      95.5%   (runner-up: [3T] 4nt-14nt-4t 94.5%, gap=+1.0%)
+   40s:  [4T] 4nt-8nt-14nt-4t                      95.7%   (runner-up: [3T] 4nt-14nt-4t 94.7%, gap=+1.0%)
+   45s:  [4T] 4nt-8nt-14nt-4t                      95.7%   (runner-up: [3T] 4nt-14nt-4t 94.9%, gap=+0.8%)
+   50s:  [4T] 4nt-8nt-14nt-4t                      95.9%   (runner-up: [3T] 4nt-14nt-4t 94.9%, gap=+1.0%)
+   55s:  [4T] 4nt-8nt-14nt-4t                      95.9%   (runner-up: [3T] 4nt-14nt-4t 94.9%, gap=+1.0%)
+   60s:  [4T] 4nt-8nt-14nt-4t                      96.3%   (runner-up: [2T] 14nt-4t 95.1%, gap=+1.2%)
+   65s:  [4T] 4nt-8nt-14nt-4t                      96.7%   (runner-up: [2T] 14nt-4t 95.7%, gap=+1.0%)
+   70s:  [4T] 4nt-8nt-14nt-4t                      97.0%   (runner-up: [2T] 14nt-4t 95.7%, gap=+1.2%)
+   75s:  [4T] 4nt-8nt-14nt-4t                      97.0%   (runner-up: [3T] 4nt-14nt-4t 95.9%, gap=+1.0%)
+   80s:  [4T] 4nt-8nt-14nt-4t                      97.2%   (runner-up: [2T] 14nt-4t 96.3%, gap=+0.8%)
+   85s:  [4T] 4nt-8nt-14nt-4t                      97.2%   (runner-up: [2T] 14nt-4t 96.6%, gap=+0.5%)
+   90s:  [4T] 4nt-8nt-14nt-4t                      97.2%   (runner-up: [2T] 14nt-4t 96.6%, gap=+0.5%)
+   95s:  [4T] 4nt-8nt-14nt-4t                      97.2%   (runner-up: [2T] 14nt-4t 96.6%, gap=+0.5%)
+  100s:  [4T] 4nt-8nt-14nt-4t                      97.4%   (runner-up: [2T] 14nt-4t 96.6%, gap=+0.7%)
+  105s:  [4T] 4nt-8nt-14nt-4t                      97.8%   (runner-up: [2T] 14nt-4t 96.6%, gap=+1.1%)
+  110s:  [4T] 4nt-8nt-14nt-4t                      97.8%   (runner-up: [2T] 14nt-4t 96.6%, gap=+1.1%)
+  115s:  [4T] 4nt-8nt-14nt-4t                      97.8%   (runner-up: [2T] 14nt-4t 96.6%, gap=+1.1%)
+  120s:  [4T] 4nt-8nt-14nt-4t                      97.8%   (runner-up: [2T] 14nt-4t 96.6%, gap=+1.1%)

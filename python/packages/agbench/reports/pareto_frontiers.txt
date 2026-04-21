@@ -1,0 +1,490 @@
+Pareto Frontiers: Latency vs Accuracy (one-turn + two-turn-nc setups)
+=====================================================================
+Source: reports/csv/one_turn_baselines.csv, reports/csv/two_turn_nc_stats.csv
+Generated: 2026-04-10
+
+A setup is on the Pareto frontier if no other setup has both
+higher accuracy AND lower latency.
+
+Legend: [1T] = one-turn, [2T] = two-turn-nc
+
+=== Mean Latency vs Accuracy ===
+Setup                                      Turns  Accuracy    Mean Latency (s)
+one-turn-0.6b-nothink                       [1T]    0.3561               1.66
+one-turn-1.7b-nothink                       [1T]    0.6659               2.53
+two-turn-nc-0.6nt-1.7nt                     [2T]    0.6890               3.17
+one-turn-4b-nothink                         [1T]    0.7780               3.37
+two-turn-nc-4nt-8nt                         [2T]    0.9085               3.81
+two-turn-nc-8nt-14nt                        [2T]    0.9238               6.75
+two-turn-nc-4nt-14nt                        [2T]    0.9360               6.85
+two-turn-nc-14nt-1.7t                       [2T]    0.9421              13.16
+two-turn-nc-8nt-4t                          [2T]    0.9665              14.32
+two-turn-nc-14nt-4t                         [2T]    0.9695              17.37
+two-turn-nc-14nt-14t                        [2T]    0.9756              25.21
+two-turn-nc-4nt-14t                         [2T]    0.9848              27.44
+two-turn-nc-8nt-14t                         [2T]    0.9878              30.76
+
+=== P50 Latency vs Accuracy ===
+Setup                                      Turns  Accuracy     P50 Latency (s)
+one-turn-0.6b-nothink                       [1T]    0.3561               0.77
+one-turn-1.7b-nothink                       [1T]    0.6659               2.05
+two-turn-nc-0.6nt-1.7nt                     [2T]    0.6890               2.21
+two-turn-nc-1.7nt-4t                        [2T]    0.9402               2.37
+two-turn-nc-1.7nt-8t                        [2T]    0.9463               2.46
+two-turn-nc-4nt-4t                          [2T]    0.9482               2.56
+two-turn-nc-1.7nt-14t                       [2T]    0.9726               2.83
+two-turn-nc-4nt-14t                         [2T]    0.9848               3.17
+two-turn-nc-8nt-14t                         [2T]    0.9878               4.62
+
+=== P90 Latency vs Accuracy ===
+Setup                                      Turns  Accuracy     P90 Latency (s)
+one-turn-0.6b-nothink                       [1T]    0.3561               1.13
+one-turn-1.7b-nothink                       [1T]    0.6659               2.95
+two-turn-nc-0.6nt-1.7nt                     [2T]    0.6890               3.63
+one-turn-4b-nothink                         [1T]    0.7780               4.00
+two-turn-nc-0.6nt-4nt                       [2T]    0.7866               5.01
+two-turn-nc-1.7nt-4nt                       [2T]    0.8537               5.78
+two-turn-nc-4nt-8nt                         [2T]    0.9085               7.37
+two-turn-nc-4nt-14nt                        [2T]    0.9360              13.32
+two-turn-nc-14nt-1.7t                       [2T]    0.9421              19.31
+two-turn-nc-14nt-4t                         [2T]    0.9695              19.92
+two-turn-nc-14nt-14t                        [2T]    0.9756              50.78
+two-turn-nc-4nt-14t                         [2T]    0.9848              84.45
+two-turn-nc-8nt-14t                         [2T]    0.9878              90.97
+
+
+=== 1T Models Strictly Dominated by 2T Setups ===
+======================================================================
+A 1T model is strictly dominated if a 2T setup has BOTH higher accuracy
+AND lower latency. These 1T models can be replaced by the dominating
+2T cascade in any multi-turn composition.
+
+--- Mean Latency ---
+1T model                  Acc    Lat    Best 2T replacement (fastest)       Acc    Lat
+---------------------------------------------------------------------------------------
+one-turn-8b-nothink     82.1%   5.5s   two-turn-nc-4nt-8nt               90.8%   3.8s
+one-turn-14b-nothink    90.1%   9.6s   two-turn-nc-4nt-8nt               90.8%   3.8s
+one-turn-0.6b-think     51.6%   7.0s   two-turn-nc-0.6nt-1.7nt           68.9%   3.2s
+one-turn-1.7b-think     84.5%  15.3s   two-turn-nc-4nt-8nt               90.8%   3.8s
+one-turn-4b-think       93.7%  29.4s   two-turn-nc-14nt-1.7t             94.2%  13.2s
+one-turn-8b-think       93.1%  54.4s   two-turn-nc-4nt-14nt              93.6%   6.8s
+one-turn-14b-think      96.8%  83.0s   two-turn-nc-14nt-4t               97.0%  17.4s
+
+--- P90 Latency ---
+1T model                  Acc    Lat    Best 2T replacement (fastest)       Acc    Lat
+---------------------------------------------------------------------------------------
+one-turn-8b-nothink     82.1%   6.5s   two-turn-nc-1.7nt-4nt             85.4%   5.8s
+one-turn-14b-nothink    90.1%  14.4s   two-turn-nc-4nt-8nt               90.8%   7.4s
+one-turn-0.6b-think     51.6%  16.6s   two-turn-nc-0.6nt-1.7nt           68.9%   3.6s
+one-turn-1.7b-think     84.5%  34.1s   two-turn-nc-1.7nt-4nt             85.4%   5.8s
+one-turn-4b-think       93.7%  50.4s   two-turn-nc-14nt-1.7t             94.2%  19.3s
+one-turn-8b-think       93.1% 102.8s   two-turn-nc-4nt-14nt              93.6%  13.3s
+one-turn-14b-think      96.8% 158.4s   two-turn-nc-14nt-4t               97.0%  19.9s
+
+--- Summary ---
+Same 7 models are dominated under both mean and P90 latency.
+
+NOT dominated (remain optimal as turn 1 in cascades):
+  one-turn-0.6b-nothink   35.6%   1.7s mean /  1.1s p90
+  one-turn-1.7b-nothink   66.6%   2.5s mean /  3.0s p90
+  one-turn-4b-nothink     77.8%   3.4s mean /  4.0s p90
+
+
+=== 3T Candidates via Compositional Substitution ===
+======================================================================
+Strategy: For each 2T frontier point that uses a dominated 1T model as
+turn 1, replace that turn with the dominating 2T cascade.
+
+2T frontier point       Turn 1 replaced by        Resulting 3T candidate
+---------------------------------------------------------------------------------------
+14nt→1.7t (13.2s, 94.2%)  14nt → 4nt→8nt          4nt → 8nt → 1.7t
+8nt→4t    (14.3s, 96.7%)  8nt  → 4nt→8nt          4nt → 8nt → 4t
+14nt→4t   (17.4s, 97.0%)  14nt → 4nt→8nt          4nt → 8nt → 4t  (same)
+14nt→14t  (25.2s, 97.6%)  14nt → 4nt→8nt          4nt → 8nt → 14t
+4nt→14t   (27.4s, 98.5%)  14t  → 14nt→4t          4nt → 14nt → 4t  (turn 2 swap)
+8nt→14t   (30.8s, 98.8%)  8nt  → 4nt→8nt          4nt → 8nt → 14t  (same)
+
+Unique 3T experiments derived:
+  4nt → 8nt → 1.7t    (targets 94% at ~5-6s)
+  4nt → 8nt → 4t      (targets 97% at ~5-6s)
+  4nt → 8nt → 14t     (targets 98% at ~5-7s)
+  4nt → 14nt → 4t     (targets 98% via turn 2 substitution)
+
+
+=== 3T Results: Predicted vs Actual ===
+======================================================================
+Updated: 2026-04-13
+
+--- Prediction accuracy ---
+
+  Config              Predicted         Actual              Verdict
+  ··················  ················  ··················  ···················
+  4nt→8nt→1.7t       94% at ~5-6s      93.3% at 8.5s      Acc ≈OK, lat 1.5x off
+  4nt→8nt→4t         97% at ~5-6s      96.8% at 13.7s     Acc ≈OK, lat 2.5x off
+  4nt→8nt→14t        98% at ~5-7s      97.8% at 25.1s     Acc ≈OK, lat 4x off
+  4nt→14nt→4t        ~98%              96.8% at 11.8s     Acc 1.2% off
+
+Accuracy predictions were within ~1%: the substitution logic (replacing
+a dominated 1T model preserves/improves accuracy) holds reliably.
+
+Latency predictions were 1.5–4x too optimistic. They assumed the mean
+would stay near the T1 latency since T1 handles ~78% of tasks. The error
+grows with T3 model size because the prediction ignored how expensive
+the remaining ~10% of tasks are when they hit a thinking model.
+
+--- Why latency predictions failed ---
+
+The prediction treated the cascade as a black-box replacement for a
+1T model: "if cascade X has mean latency L and dominates 1T model Y,
+then swapping Y for X in a 2T config should give latency ≈ L."
+
+This ignores that mean latency is dominated by tail costs:
+
+  Config           T1 pass  T3 pass  T3 LLM lat   T3 E2E      Fail E2E
+  ···············  ·······  ·······  ··········   ··········  ··········
+  4nt→8nt→14nt     78.9%     6.9%      9.8s       35.2s       20.0s
+  4nt→8nt→1.7t     78.9%     4.7%     33.7s       37.8s       48.6s
+  4nt→8nt→4t       78.2%     6.9%     70.3s       63.3s      181.8s
+  4nt→8nt→8t       77.6%     6.5%     93.1s       84.7s      196.6s
+  4nt→8nt→14t      77.0%     9.6%    163.9s      141.0s      364.9s
+
+Thinking models produce long reasoning chains on hard tasks (the exact
+tasks that stumped T1 and T2). Even though T3 only fires on ~10-20% of
+tasks, its per-invocation cost (70–164s LLM time) pulls the mean up
+dramatically. Nothink 14nt as T3 costs only 9.8s LLM time — 7-17x
+cheaper per invocation than thinking models.
+
+--- Key insight: think model T3 latency scales superlinearly ---
+
+  T3 model    T3 LLM lat    Acc gain over 4nt→8nt (90.8%)    Lat/acc ratio
+  ·········   ··········    ····························      ·············
+  14nt           9.8s       +3.9% (→94.7%)                    1.7s per 1%
+  1.7t          33.7s       +2.4% (→93.3%)                    3.5s per 1%
+  4t            70.3s       +5.9% (→96.8%)                    5.5s per 1%
+  8t            93.1s       +5.3% (→96.1%)                    6.8s per 1%
+  14t          163.9s       +6.9% (→97.8%)                   10.5s per 1%
+
+14nt gives the best accuracy per latency-second. Thinking models pay
+exponentially more latency for diminishing accuracy gains. 8t is
+strictly worse than 4t (less accurate AND slower) — suggesting that
+8B-think's longer chains don't help on tasks that stumped 4B-nothink
+and 8B-nothink.
+
+--- Does 3T actually extend the 2T Pareto frontier? ---
+
+Combined 2T+3T mean-latency Pareto frontier:
+
+  Config                      Type  Acc     Lat
+  ··························  ····  ·····   ······
+  0.6nt→1.7nt                 2T   68.9%    3.2s
+  0.6nt→1.7nt→4nt             3T   85.8%    3.6s  ← new point
+  4nt→8nt                     2T   90.8%    3.8s
+  4nt→8nt→14nt                3T   94.7%    6.7s  ← new point
+  4nt→14nt→4t                 3T   96.8%   11.8s  ← new point
+  14nt→4t                     2T   97.0%   17.4s
+  4nt→8nt→14t                 3T   97.8%   25.1s  ← new point
+  8nt→4t→14t                  3T   99.0%   25.7s  ← new point
+  14nt→4t→14t                 3T   99.2%   29.9s  ← new point
+
+3T adds 6 new points to the combined frontier, pushing it in two ways:
+  - Mid-range (85-97%): fills the gap between 2T 4nt-8nt and 14nt-4t
+  - High-end (97-99%): pushes accuracy ceiling from 98.8% to 99.2%
+
+Only 5 of 19 3T configs land on the frontier. Most 3T configs are
+dominated because adding a thinking T3 adds too much latency relative
+to the accuracy gain.
+
+--- 3T configs that dominate 2T frontier points ---
+
+  3T config          3T result         Dominates 2T         Margin
+  ·················  ···············   ··················   ·········
+  4nt→8nt→14nt      94.7%,  6.7s      4nt→14nt  93.6%, 6.8s    barely
+  4nt→14nt→4t       96.8%, 11.8s      8nt→4t    96.7%,14.3s    small
+  4nt→8nt→4t        96.8%, 13.7s      8nt→4t    96.7%,14.3s    barely
+  4nt→8nt→14t       97.8%, 25.1s      14nt→14t  97.6%,25.2s    barely
+  8nt→4t→14t        99.0%, 25.7s      4nt→14t   98.5%,27.4s    small
+                                       8nt→14t   98.8%,30.8s    small
+  14nt→4t→14t       99.2%, 29.9s      8nt→14t   98.8%,30.8s    small
+
+Most dominance margins are razor-thin. 3T doesn't leapfrog 2T —
+it nudges the frontier forward by small increments.
+
+--- Nothink T2 choice matters: 8nt vs 14nt ---
+
+  4nt→8nt →4t    T2_pass=11.6%  T3_pass=6.9%  lat=13.7s
+  4nt→14nt→4t    T2_pass=15.8%  T3_pass=2.9%  lat=11.8s
+
+14nt as T2 solves 4.2% more tasks than 8nt, leaving fewer for the
+expensive 4t T3. Result: same accuracy, 14% lower latency. The
+latency cost of running 14nt (10.7s) vs 8nt (4.4s) per T2 invocation
+is more than offset by avoiding expensive T3 invocations.
+
+--- Lessons for 4T extension ---
+
+1. ACCURACY PREDICTIONS ARE RELIABLE. The compositional substitution
+   logic (replace dominated model → preserve accuracy) works. Trust
+   accuracy estimates within ~1%.
+
+2. LATENCY PREDICTIONS ARE NOT RELIABLE for thinking models. Do not
+   estimate 4T latency by summing cascade latency + rescue latency.
+   Instead, expect thinking T3/T4 costs to dominate the mean whenever
+   they fire on >5% of tasks.
+
+3. ALL-NOTHINK CASCADES WIN ON EFFICIENCY. 4nt→8nt→14nt achieves
+   94.7% at 6.7s — better accuracy/latency ratio than any cascade
+   using thinking models. Use nothink for the cheap early turns.
+
+4. THINKING MODELS BELONG IN THE FINAL TURN ONLY. Their value is
+   solving the hardest remaining tasks, but their per-task cost is
+   extreme (70-164s). Placing them earlier wastes their expensive
+   reasoning on tasks that cheaper models could handle.
+
+5. LARGER NOTHINK T2 > SMALLER NOTHINK T2. Spending more on T2 (14nt
+   vs 8nt) pays back by reducing expensive T3 invocations.
+
+6. 8B-THINK IS DOMINATED. 4nt→8nt→8t (96.1%, 16.7s) is strictly
+   worse than 4nt→8nt→4t (96.8%, 13.7s). 8B-think's longer chains
+   don't help on hard tasks and cost more. Avoid 8t in cascades.
+
+7. EXPECT DIMINISHING RETURNS FROM 4T. If 3T only nudges the 2T
+   frontier by thin margins, 4T will likely do the same relative to
+   3T. The biggest 4T wins will come from all-nothink early turns
+   (Groups A, C) rather than adding more thinking models (Group B).
+
+
+=== 4T Candidates via 3T→4T Extension ===
+======================================================================
+Updated: 2026-04-13
+
+Strategy: Take 2T Pareto frontier configs and replace one of the two
+models with a 3-turn cascade that strictly dominates it (higher accuracy
+AND lower mean latency). The result is a 4-turn config that should
+dominate the original 2T config.
+
+--- 3T Cascades That Dominate 1T Models (mean latency) ---
+
+3T cascade              Acc     Lat     Dominates 1T model        Acc     Lat
+---------------------------------------------------------------------------------------
+0.6nt→1.7nt→4nt       85.8%   3.57s   1.7b-think              84.6%  15.31s  (4.3x)
+                                        8b-nothink              82.1%   5.53s  (1.5x)
+4nt→8nt→14nt           94.7%   6.70s   14b-nothink             90.1%   9.63s  (1.4x)
+                                        4b-think                93.7%  29.44s  (4.4x)
+4nt→8nt→1.7t           93.3%   8.50s   14b-nothink             90.1%   9.63s  (1.1x)
+1.7nt→4nt→14nt         94.7%   9.75s   4b-think                93.7%  29.44s  (3.0x)
+1.7nt→4nt→4t           95.3%  14.88s   4b-think                93.7%  29.44s  (2.0x)
+
+--- 2T Mean Latency Pareto Frontier ---
+
+Setup                   Acc     Lat     T1 model   T2 model
+---------------------------------------------------------------------------------------
+4nt→8nt                90.8%   3.81s   4nt        8nt
+4nt→14nt               93.6%   6.85s   4nt        14nt
+8nt→4t                 96.7%  14.32s   8nt        4t
+14nt→4t                97.0%  17.37s   14nt       4t
+14nt→14t               97.6%  25.21s   14nt       14t
+4nt→14t                98.5%  27.44s   4nt        14t
+8nt→14t                98.8%  30.76s   8nt        14t
+
+--- Substitutions Applied ---
+
+Group A: Replace T1 with 0.6nt→1.7nt→4nt cascade
+  (cascade dominates both 4nt and 8nt as 1-turn models)
+
+  2T origin             Replace   4T config                       Expected effect
+  ···················   ·······   ·····························   ························
+  4nt→8nt   (90.8%)    T1=4nt    0.6nt→1.7nt→4nt→8nt   *        More tasks solved cheaply
+  4nt→14nt  (93.6%)    T1=4nt    0.6nt→1.7nt→4nt→14nt  *        before expensive T4 fires
+  4nt→14t   (98.5%)    T1=4nt    0.6nt→1.7nt→4nt→14t   *
+  8nt→4t    (96.7%)    T1=8nt    0.6nt→1.7nt→4nt→4t             Cascade dominates 8nt
+
+Group B: Replace T1=14nt with 4nt→8nt→1.7t cascade
+  (cascade at 93.3%, 8.5s dominates 14nt at 90.1%, 9.6s)
+  (introduces nothink→think transition — different failure mode from all-nothink)
+
+  2T origin             Replace   4T config                       Expected effect
+  ···················   ·······   ·····························   ························
+  14nt→4t   (97.0%)    T1=14nt   4nt→8nt→1.7t→4t                Faster + thinking diversity
+  14nt→14t  (97.6%)    T1=14nt   4nt→8nt→1.7t→14t               Faster + thinking diversity
+
+Group C: Replace T2 with cascade
+  (4nt→8nt→14nt at 94.7%, 6.7s dominates 14nt at 90.1%, 9.6s)
+
+  2T origin             Replace   4T config                       Expected effect
+  ···················   ·······   ·····························   ························
+  4nt→14nt  (93.6%)    T2=14nt   4nt→4nt→8nt→14nt       *       Cascade retry before 14nt
+
+Group D: Extend strong 3T cascades with heavy rescue turn
+  (strong 3T base already near 95% — add 14t to catch remaining failures)
+
+  3T base                         4T config                       Expected effect
+  ·····························   ·····························   ························
+  1.7nt→4nt→14nt (94.7%, 9.8s)   1.7nt→4nt→14nt→14t             Push to ~98%+ at ~10-12s
+  1.7nt→4nt→4t   (95.3%, 14.9s)  1.7nt→4nt→4t→14t               Push to ~98%+ at ~15-17s
+
+* = already launched (batch 1)
+
+--- Existing 4T Results (v1 runs, for reference) ---
+
+These used the 4nt→8nt→14nt cascade to replace 14nt (Group C strategy):
+
+  4T config                       Acc     Lat     Dominates 2T
+  ·····························   ·····   ······  ·····························
+  4nt→8nt→14nt→4t               98.6%    8.01s   8nt→4t (+2.0%, 1.8x faster)
+                                                   14nt→4t (+1.7%, 2.2x faster)
+  4nt→8nt→14nt→14t              98.8%   17.15s   14nt→14t (+1.2%, 1.5x faster)
+                                                   8nt→14t (same acc, 1.8x faster)
+  4nt→8nt→4t→14t                99.2%   23.63s   4nt→14t (+0.7%, 1.2x faster)
+  4nt→14nt→4t→14t               99.3%   31.58s   (highest accuracy observed)
+
+
+=== Combined Efficiency Frontier (1T/2T/3T/4T) ===
+======================================================================
+Updated: 2026-04-14
+Source: one_turn_baselines.csv, two_turn_nc_stats.csv,
+        three_turn_nc_stats.csv, four_turn_nc_stats.csv
+Plots: reports/pareto/pareto_efficiency_frontier.png
+       reports/pareto/pareto_efficiency_frontier_zoomed.png
+
+Total configs: 93 (1T:10, 2T:51, 3T:19, 4T:13)
+
+--- Mean Latency Pareto Frontier (12 points) ---
+
+  Config                          Type  Acc     Mean Lat
+  ·····························   ····  ·····   ········
+  0.6b-nothink                    1T   35.6%      1.7s
+  1.7b-nothink                    1T   66.6%      2.5s
+  0.6nt→1.7nt                     2T   68.9%      3.2s
+  4b-nothink                      1T   77.8%      3.4s
+  0.6nt→1.7nt→4nt                 3T   85.8%      3.6s
+  4nt→8nt                         2T   90.8%      3.8s
+  4nt→8nt→14nt                    3T   94.7%      6.7s
+  4nt→4nt→8nt→14nt                4T   95.9%     10.2s
+  4nt→8nt→14nt→4t                 4T   98.2%     10.5s
+  1.7nt→4nt→14nt→14t              4T   98.6%     17.0s
+  4nt→8nt→14nt→14t                4T   98.8%     17.1s
+  4nt→8nt→4t→14t                  4T   99.2%     23.6s
+
+--- P50 Latency Pareto Frontier (9 points) ---
+
+  Config                          Type  Acc      P50 Lat
+  ·····························   ····  ·····   ········
+  0.6b-nothink                    1T   35.6%      0.8s
+  1.7b-nothink                    1T   66.6%      2.0s
+  0.6nt→1.7nt                     2T   68.9%      2.2s
+  1.7nt→4t                        2T   94.0%      2.4s
+  1.7nt→8t                        2T   94.6%      2.5s
+  4nt→4t                          2T   94.8%      2.6s
+  1.7nt→14t                       2T   97.3%      2.8s
+  4nt→14t                         2T   98.5%      3.2s
+  4nt→8nt→1.7t→14t                4T   99.2%      4.0s
+
+--- P90 Latency Pareto Frontier (11 points) ---
+
+  Config                          Type  Acc      P90 Lat
+  ·····························   ····  ·····   ········
+  0.6b-nothink                    1T   35.6%      1.1s
+  1.7b-nothink                    1T   66.6%      3.0s
+  0.6nt→1.7nt                     2T   68.9%      3.6s
+  4b-nothink                      1T   77.8%      4.0s
+  0.6nt→4nt                       2T   78.7%      5.0s
+  1.7nt→4nt                       2T   85.4%      5.8s
+  0.6nt→1.7nt→4nt                 3T   85.8%      6.6s
+  4nt→8nt                         2T   90.8%      7.4s
+  4nt→8nt→14nt                    3T   94.7%     12.6s
+  4nt→8nt→14nt→14t                4T   98.8%     13.1s
+  4nt→8nt→1.7t→14t                4T   99.2%     19.8s
+
+--- Assumption Check ---
+
+1. "4T WILL ONLY NUDGE 3T BY THIN MARGINS" is only partly true.
+   - True for P50: only 1 of 13 4T configs reaches the combined P50 frontier.
+   - Mostly true for P90: only 2 of 13 4T configs survive there.
+   - False for mean latency: 4T adds 5 frontier points and moves the
+     frontier sharply from 94.7% at 6.7s (3T) to 98.2% at 10.5s (4T).
+
+2. "ALL-NOTHINK EARLY TURNS ARE THE BACKBONE" holds.
+   The strongest 4T mean/P90 points all keep cheap nothink turns up
+   front. The best examples are:
+     - 4nt→4nt→8nt→14nt      : 95.9%, 10.2s mean
+     - 4nt→8nt→14nt→4t       : 98.2%, 10.5s mean
+     - 4nt→8nt→14nt→14t      : 98.8%, 13.1s p90 / 17.1s mean
+     - 1.7nt→4nt→14nt→14t    : 98.6%, 17.0s mean
+
+3. "THINKING MODELS BELONG IN THE FINAL TURN ONLY" mostly holds for
+   mean and P90, but not perfectly for P50.
+   - Mean/P90: middle-think configs are usually dominated.
+       4nt→8nt→1.7t→4t is dominated on mean by 1.7nt→4nt→14nt→14t.
+       1.7nt→4nt→4t→14t is strictly worse than 1.7nt→4nt→14nt→14t
+       at the same 98.6% accuracy.
+   - P50: 4nt→8nt→1.7t→14t is actually the only 4T P50 frontier point.
+     This does not contradict the mean result. P50 only sees the
+     typical request, and the median task exits before T3/T4.
+
+4. "ACCURACY PREDICTIONS ARE RELIABLE" only holds for the successful
+   substitution families.
+   - Group C / D behaved as expected: stronger nothink prefixes plus a
+     sparse rescue turn raised accuracy substantially.
+   - Group B did not reliably preserve parent accuracy:
+       14nt→4t               = 97.0%, 17.4s mean
+       4nt→8nt→1.7t→4t       = 96.3%, 19.0s mean
+     Replacing a strong nothink parent with a weaker think middle turn
+     can lose accuracy as well as speed.
+
+5. "GROUP A PREFIX SUBSTITUTION WILL HELP" is false.
+   None of the four Group A runs reaches any combined frontier:
+     0.6nt→1.7nt→4nt→8nt      93.3%,  9.9s mean
+     0.6nt→1.7nt→4nt→14nt     94.5%, 10.9s mean
+     0.6nt→1.7nt→4nt→4t       95.1%, 15.2s mean
+     0.6nt→1.7nt→4nt→14t      98.2%, 30.9s mean
+   The cheap prefix fires on 100% of tasks, so it raises P50 and mean
+   immediately. It is not a free replacement for a single strong turn.
+
+6. "DIMINISHING RETURNS" is metric-dependent.
+   - Mean latency still gets large 4T gains because turn 4 only fires
+     on a small hard remainder.
+   - P50 barely moves because almost all frontier candidates already
+     solve the median case before T4.
+   - P90 sits in between: 4T helps, but only when the rescue path is
+     both accurate and not too tail-heavy.
+
+--- Why 4T sometimes helps and sometimes does not ---
+
+1. 4T helps when T1-T3 already solve almost everything.
+   The successful 4T configs all enter turn 4 rarely:
+     - 4nt→8nt→14nt→4t   : T1+T2+T3 solve 95.3%; T4 only solves 2.9%
+     - 4nt→8nt→14nt→14t  : T1+T2+T3 solve 95.7%; T4 only solves 3.1%
+     - 1.7nt→4nt→14nt→14t: T1+T2+T3 solve 94.7%; T4 only solves 3.9%
+   In these cases the expensive rescue turn is diluted over a tiny tail,
+   so the frontier moves meaningfully.
+
+2. 4T does not help when the extra structure is moved into the prefix.
+   Group A adds 0.6nt and 1.7nt to every request, then still leaves
+   14-18% of tasks for turns 3-4. Example:
+     0.6nt→1.7nt→4nt→14t
+       T1/T2/T3/T4/fail = 34.4% / 35.0% / 16.3% / 12.6% / 1.8%
+       mean = 30.9s, p90 = 76.1s
+   The early-turn overhead is paid by everyone, while the heavy 14t
+   rescue still triggers often enough to destroy the tail.
+
+3. 4T does not help when the rescue model is too expensive relative to
+   the remaining error mass.
+   4nt→8nt→1.7t→14t has excellent P50 (3.96s) because the median task
+   exits before turn 3, but it is not a mean-frontier point:
+     - turn 3 LLM latency = 50.1s
+     - turn 4 LLM latency = 222.0s
+     - turn 4 still handles 5.7% of tasks
+   So it wins the typical case, but not the average case.
+
+4. Stronger middle nothink beats weaker middle think.
+   Compare the two Group D extensions:
+     - 1.7nt→4nt→14nt→14t : 98.6%, 17.0s mean, 17.4s p90
+     - 1.7nt→4nt→4t→14t   : 98.6%, 22.4s mean, 33.0s p90
+   Same accuracy ceiling, much better latency with 14nt in turn 3.
+   The stronger nothink turn removes enough tasks before the expensive
+   final rescue to more than repay its own cost.
+
+5. The best 4T recipe is: cheap nothink staircase first, sparse rescue
+   last. The data now supports a simple rule:
+     Use 4T only when the first 3 turns already reach ~95% accuracy.
+     If the prefix is weaker than that, turn 4 fires too often and the
+     extra turn becomes dead weight instead of a Pareto improvement.

@@ -1,0 +1,23 @@
+# GAIA SelectorGroupChat: Qwen3-4B non-thinking
+
+servers:
+  - model: "Qwen/Qwen3-4B"
+    port: 40005
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+benchmarks:
+  - name: "gaia_selector_qwen3_4b_nt"
+    scenario_file: "benchmarks/GAIA/Tasks/gaia_validation_level_1__SelectorGroupChat.jsonl"
+    config_template: "scripts/configs/config-gaia-selector-template.yaml"
+    server_port: 40005
+    num_concurrent: 1
+    repeat: 1
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

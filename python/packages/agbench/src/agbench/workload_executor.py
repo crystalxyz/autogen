@@ -49,7 +49,7 @@ def _cleanup_logs(results_dir: str) -> None:
         results_dir: Path to the results directory to clean up
     """
     # Files to keep
-    keep_files = {"console_log.txt", "prompt.txt"}
+    keep_files = {"console_log.txt", "prompt.txt", "expected_answer.txt"}
 
     try:
         # Get all files in the directory

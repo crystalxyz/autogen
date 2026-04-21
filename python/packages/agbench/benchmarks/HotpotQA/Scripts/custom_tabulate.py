@@ -3,6 +3,7 @@ import sys
 import re
 import string
 from collections import Counter
+from typing import Optional
 
 from agbench.tabulate_cmd import default_tabulate
 
@@ -103,8 +104,66 @@ def scorer(instance_dir: str):
     return exact_match_score(final_answer, expected_answer)
 
 
+def f1_scorer(instance_dir: str) -> Optional[float]:
+    """Return F1 score (0.0–1.0) for a single instance, or None if missing."""
+    expected_answer_file = os.path.join(instance_dir, "expected_answer.txt")
+    console_log_file = os.path.join(instance_dir, "console_log.txt")
+
+    if not os.path.isfile(expected_answer_file) or not os.path.isfile(console_log_file):
+        return None
+
+    with open(expected_answer_file, "rt") as fh:
+        expected_answer = fh.read().strip()
+
+    with open(console_log_file, "rt") as fh:
+        console_log = fh.read()
+
+    matches = re.findall(r"FINAL ANSWER:\s*(.+?)(?:\n|$)", console_log, re.IGNORECASE | re.DOTALL)
+    if not matches:
+        matches = re.findall(r"ANSWER:\s*(.+?)(?:\n|$)", console_log, re.IGNORECASE | re.DOTALL)
+    if not matches:
+        return None
+
+    return f1_score(matches[-1].strip(), expected_answer)
+
+
 def main(args):
     default_tabulate(args, scorer=scorer)
+
+    # Also compute and print average F1 across all instances
+    import argparse as _ap
+
+    parser = _ap.ArgumentParser(add_help=False)
+    parser.add_argument("runlogs")
+    parsed, _ = parser.parse_known_args(args[1:])
+    runlogs = parsed.runlogs
+
+    exclude = {"result.json", "result.json.tmp", "__pycache__"}
+    f1_scores, em_scores = [], []
+    for task_id in sorted(os.listdir(runlogs)):
+        if task_id in exclude:
+            continue
+        task_path = os.path.join(runlogs, task_id)
+        if not os.path.isdir(task_path):
+            continue
+        for rep in sorted(os.listdir(task_path)):
+            rep_path = os.path.join(task_path, rep)
+            if not rep.isdigit() or not os.path.isdir(rep_path):
+                continue
+            f1 = f1_scorer(rep_path)
+            em = scorer(rep_path)
+            if f1 is not None:
+                f1_scores.append(f1)
+            if em is not None:
+                em_scores.append(1 if em else 0)
+
+    if f1_scores or em_scores:
+        n = max(len(f1_scores), len(em_scores))
+        print(f"\nHotpotQA Score Summary ({n} instances):")
+        if f1_scores:
+            print(f"  Average F1:    {sum(f1_scores)/len(f1_scores):.4f}")
+        if em_scores:
+            print(f"  Exact Match:   {sum(em_scores)/len(em_scores):.4f}")
 
 
 if __name__ == "__main__" and __package__ is None:

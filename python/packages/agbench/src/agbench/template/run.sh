@@ -1,5 +1,6 @@
 echo RUN.SH STARTING !#!#
 export AUTOGEN_TESTBED_SETTING="Apptainer"
+export OMP_NUM_THREADS=1
 
 umask 000
 echo "agbench version: {__version__}" > timestamp.txt
