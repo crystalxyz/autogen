@@ -12,11 +12,11 @@ servers:
 
 benchmarks:
   - name: "hotpotqa_selector_qwen3_8b_nt"
-    scenario_file: "benchmarks/HotpotQA/Tasks/hotpotqa_validation_fullwiki__SelectorGroupChat_sanity200_seed42.jsonl"
+    scenario_file: "benchmarks/HotpotQA/Tasks/hotpotqa_validation_fullwiki__SelectorGroupChat_sanity100_seed42.jsonl"
     config_template: "scripts/configs/config-hotpotqa-selector-template.yaml"
     server_port: 30015
     num_concurrent: 2
-    repeat: 1
+    repeat: 3
 
 server_startup_timeout: 600
 server_health_check_interval: 5

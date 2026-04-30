@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 from autogen_core import DefaultTopicId, SingleThreadedAgentRuntime, TypeSubscription
-from autogen_core.models import ChatCompletionClient
+from autogen_core.models import ChatCompletionClient, SystemMessage, UserMessage
 
 from agbench.agents.debating_agent import (
     DebateTask,
@@ -34,6 +34,98 @@ from agbench.agents.debating_agent import (
     DebateAggregator,
     ResultCollector,
 )
+from agbench.agents.debating_agent.protocol import (
+    FinalDebaterResponse,
+    JudgeResponse,
+)
+
+
+class HotpotQAExtractiveJudge(ExtractiveJudge):
+    """Extractive judge tuned for HotpotQA short-phrase answers.
+
+    HotpotQA expects answers like "1789", "yes", or "Marvel Cinematic Universe"
+    — typically a few words. The base ExtractiveJudge prompt is too generic and
+    invites verbose explanations that hurt F1/EM. This override emphasizes:
+      - Synthesize a NEW answer (don't just pick from candidates).
+      - Keep the answer to a short phrase / very few words.
+    """
+
+    async def judge(self, solutions: list[FinalDebaterResponse], task: DebateTask) -> JudgeResponse:
+        if not solutions:
+            raise ValueError("No solutions to judge")
+        if len(solutions) == 1:
+            return JudgeResponse(
+                solution=solutions[0].solution,
+                mode=self.mode,
+                reasoning="Only one solution provided.",
+                selected_debater_id=solutions[0].debater_id,
+            )
+
+        system = (
+            "You are an expert judge for a HotpotQA short-answer question. "
+            "Several debaters proposed candidate answers. Your job is to "
+            "synthesize the FINAL ANSWER yourself — do not just pick one of "
+            "the candidates verbatim. Combine the strongest evidence and "
+            "reasoning across the debaters and produce your own answer.\n\n"
+            "CRITICAL: HotpotQA answers are very short — usually a single "
+            "phrase, name, year, number, or 'yes'/'no'. Do NOT write a "
+            "sentence. Do NOT include explanation in the answer. Output the "
+            "fewest words that fully answer the question.\n\n"
+            "Output format (exactly):\n"
+            "REASONING: <one or two sentences>\n"
+            "SOLUTION: <a short answer, only the answer itself>"
+        )
+
+        # Include each debater's full reasoning (explanation) AND extracted
+        # answer. The reasoning often disambiguates between debaters that
+        # arrived at the same short phrase via different paths, and lets the
+        # judge prefer the one with stronger evidence.
+        user_parts = [f"Original question:\n{task.prompt}\n\nDebater submissions:\n"]
+        for sol in solutions:
+            reasoning = (sol.explanation or "").strip()
+            if len(reasoning) > 2000:
+                reasoning = reasoning[:2000] + "  ...[truncated]"
+            user_parts.append(
+                f"\n=== {sol.debater_id} ===\n"
+                f"Reasoning:\n{reasoning}\n\n"
+                f"Their final answer: {sol.solution}\n"
+            )
+        user_parts.append(
+            "\nSynthesize the final HotpotQA answer using the strongest "
+            "evidence across debaters. Remember: very few words, no sentence, "
+            "no explanation in the SOLUTION line."
+        )
+
+        messages = [
+            SystemMessage(content=system),
+            UserMessage(content="".join(user_parts), source="user"),
+        ]
+
+        result = await self._model_client.create(messages)
+        response = str(result.content) if not isinstance(result.content, str) else result.content
+
+        # Prefer the SOLUTION: line; fall back to extract_solution / full text.
+        m = re.search(r"SOLUTION:\s*(.+?)(?:\n\s*\n|\Z)", response, re.IGNORECASE | re.DOTALL)
+        if m:
+            solution = m.group(1).strip()
+            # If the model wrote multiple lines, take the first non-empty one.
+            for line in solution.splitlines():
+                line = line.strip()
+                if line and not line.lower().startswith("solution:"):
+                    solution = line
+                    break
+        else:
+            solution = self._domain_config.extract_solution(response)
+
+        reasoning_match = re.search(r"REASONING:\s*(.+?)(?:SOLUTION:|\Z)", response, re.IGNORECASE | re.DOTALL)
+        reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
+
+        return JudgeResponse(
+            solution=solution,
+            mode=self.mode,
+            reasoning=reasoning,
+            selected_debater_id=None,
+        )
 
 
 class HotpotQAEvaluator(SolutionEvaluator):
@@ -108,7 +200,7 @@ class HotpotQAEvaluator(SolutionEvaluator):
 
 async def run_debate_with_custom_prompts(
     task: str,
-    model_client: ChatCompletionClient,
+    model_client: ChatCompletionClient | dict[str, ChatCompletionClient],
     domain_config: ReasoningDomainConfig,
     judge: DiscriminativeJudge | ExtractiveJudge,
     evaluator: SolutionEvaluator,
@@ -118,13 +210,24 @@ async def run_debate_with_custom_prompts(
     topology_type: TopologyType = TopologyType.CIRCULAR,
     context: dict[str, Any] | None = None,
 ):
-    """Run debate with custom system prompts per debater."""
+    """Run debate with custom system prompts per debater.
+
+    `model_client` can be a single client (used by all debaters) or a dict
+    mapping debater_id -> client (e.g. {"DebaterA": qwen_client, "DebaterB": gemma_client}).
+    """
     context = context or {}
 
     # Setup topology
     topology = TopologyConfig(topology_type=topology_type, num_debaters=num_debaters)
     debater_ids = topology.get_debater_ids()
     connections = topology.get_connections()
+
+    def _client_for(did: str) -> ChatCompletionClient:
+        if isinstance(model_client, dict):
+            if did not in model_client:
+                raise ValueError(f"No model_client provided for debater '{did}'")
+            return model_client[did]
+        return model_client
 
     # Create runtime
     runtime = SingleThreadedAgentRuntime()
@@ -133,12 +236,13 @@ async def run_debate_with_custom_prompts(
     for debater_id in debater_ids:
         num_neighbors = topology.get_num_neighbors(debater_id)
         system_prompt = system_prompts.get(debater_id)  # None uses domain default
+        debater_client = _client_for(debater_id)
 
         await Debater.register(
             runtime,
             debater_id,
-            lambda did=debater_id, nn=num_neighbors, sp=system_prompt: Debater(
-                model_client=model_client,
+            lambda did=debater_id, nn=num_neighbors, sp=system_prompt, mc=debater_client: Debater(
+                model_client=mc,
                 domain_config=domain_config,
                 topic_type=did,
                 num_neighbors=nn,
@@ -201,23 +305,123 @@ async def main() -> None:
     with open("expected_answer.txt", "r") as f:
         expected_answer = f.read().strip()
 
-    model_client = ChatCompletionClient.load_component(config["model_config"])
-
     # Configuration
     num_debaters = 4
-    max_rounds = 2
-    judge_mode = JudgeMode.DISCRIMINATIVE
+    max_rounds = 3
+    judge_mode = JudgeMode.EXTRACTIVE
+
+    # Resolve debater_id -> client mapping. Supports two layouts:
+    #   1. Single `model_config` (legacy): one client used for all debaters + judge.
+    #   2. Per-debater `model_config_debaterA` / `_debaterB` / ... and an
+    #      optional `model_config_judge`. Falls back to `model_config` for any
+    #      role not explicitly listed.
+    topology = TopologyConfig(topology_type=TopologyType.CIRCULAR, num_debaters=num_debaters)
+    debater_ids = topology.get_debater_ids()
+
+    debater_clients: dict[str, ChatCompletionClient] = {}
+    default_section = config.get("model_config")
+    for did in debater_ids:
+        section_key = f"model_config_debater{did[-1]}"  # DebaterA -> model_config_debaterA
+        section = config.get(section_key, default_section)
+        if section is None:
+            raise ValueError(f"No model config found for {did} ({section_key} or model_config)")
+        debater_clients[did] = ChatCompletionClient.load_component(section)
+
+    judge_section = config.get("model_config_judge", default_section)
+    if judge_section is None:
+        raise ValueError("No model config found for judge (model_config_judge or model_config)")
+    judge_client = ChatCompletionClient.load_component(judge_section)
+
+    # === Latency instrumentation ===========================================
+    # Per-call markers (parsed by reports/csv tooling, mirrors the convention
+    # used by SelectorGroupChat scenario):
+    #   [LATENCY] role=debater label=DebaterA round=N duration_s=... prompt_tokens=... completion_tokens=...
+    #   [LATENCY] role=judge   label=judge        duration_s=... prompt_tokens=... completion_tokens=...
+    # Plus a per-round wall-clock entry, fired when the last debater of round N
+    # returns from its LLM call:
+    #   [ROUND] round=N wallclock_s=... debaters=N
+    # wallclock_s = max(end_time over debaters in round N) - min(start_time over them).
+    round_state: dict[int, dict[str, float]] = {}
+
+    def _instrument_debater(client: ChatCompletionClient, debater_id: str) -> None:
+        _orig = client.create
+        call_idx = {"n": 0}  # round number = nth call (each debater calls model once per round)
+
+        async def _timed(*args, **kwargs):
+            round_n = call_idx["n"]
+            call_idx["n"] += 1
+            t0 = time.perf_counter()
+            rs = round_state.setdefault(round_n, {"start": t0, "end": t0, "started": 0, "finished": 0})
+            if rs["started"] == 0:
+                rs["start"] = t0
+            rs["started"] += 1
+
+            result = None
+            try:
+                result = await _orig(*args, **kwargs)
+                return result
+            finally:
+                t1 = time.perf_counter()
+                dt = t1 - t0
+                usage = getattr(result, "usage", None) if result is not None else None
+                pt = getattr(usage, "prompt_tokens", None) if usage else None
+                ct = getattr(usage, "completion_tokens", None) if usage else None
+                print(
+                    f"[LATENCY] role=debater label={debater_id} round={round_n} "
+                    f"duration_s={dt:.3f} prompt_tokens={pt} completion_tokens={ct}",
+                    flush=True,
+                )
+                rs["end"] = max(rs["end"], t1)
+                rs["finished"] += 1
+                if rs["finished"] >= num_debaters:
+                    wc = rs["end"] - rs["start"]
+                    print(
+                        f"[ROUND] round={round_n} wallclock_s={wc:.3f} debaters={num_debaters}",
+                        flush=True,
+                    )
+
+        client.create = _timed
+
+    def _instrument_judge(client: ChatCompletionClient) -> None:
+        _orig = client.create
+
+        async def _timed(*args, **kwargs):
+            t0 = time.perf_counter()
+            result = None
+            try:
+                result = await _orig(*args, **kwargs)
+                return result
+            finally:
+                dt = time.perf_counter() - t0
+                usage = getattr(result, "usage", None) if result is not None else None
+                pt = getattr(usage, "prompt_tokens", None) if usage else None
+                ct = getattr(usage, "completion_tokens", None) if usage else None
+                print(
+                    f"[LATENCY] role=judge label=judge duration_s={dt:.3f} prompt_tokens={pt} completion_tokens={ct}",
+                    flush=True,
+                )
+
+        client.create = _timed
+
+    for did, client in debater_clients.items():
+        _instrument_debater(client, did)
+    _instrument_judge(judge_client)
+    # =======================================================================
 
     print(f"Multi-Agent Debate: {num_debaters} debaters, {max_rounds} rounds, {judge_mode.value} judge")
+    for did, client in debater_clients.items():
+        print(f"  {did}: {getattr(client, '_resolved_model', getattr(client, 'model', '?'))}")
+    print(f"  Judge: {getattr(judge_client, '_resolved_model', getattr(judge_client, 'model', '?'))}")
     print("=" * 60)
 
     # Setup domain and evaluator
     domain = ReasoningDomainConfig()
-    judge = (
-        DiscriminativeJudge(model_client, domain)
-        if judge_mode == JudgeMode.DISCRIMINATIVE
-        else ExtractiveJudge(model_client, domain)
-    )
+    if judge_mode == JudgeMode.DISCRIMINATIVE:
+        judge = DiscriminativeJudge(judge_client, domain)
+    else:
+        # Use HotpotQA-specific extractive judge so the synthesized answer is a
+        # short phrase (matches HotpotQA's F1/EM scoring expectations).
+        judge = HotpotQAExtractiveJudge(judge_client, domain)
     evaluator = HotpotQAEvaluator(expected_answer=expected_answer)
 
     # Define custom system prompts for each debater
@@ -259,25 +463,25 @@ When solving problems:
 IMPORTANT: Format your final answer on its own line starting with: ANSWER:
 
 When reviewing other solutions: You are affirmative side. Please express your viewpoints.""",
-        "DebaterD": """You are a synthesis expert participating in collaborative problem solving.
-Your task is to combine insights and find common ground.
+        "DebaterD": """You are a synthesis-oriented reasoner participating in collaborative problem solving.
+Your task is to weigh competing claims and find the best-supported answer.
 
 When solving problems:
-1. Look for patterns across different perspectives
-2. Identify areas of agreement and disagreement
-3. Synthesize the strongest elements from each view
-4. Build consensus around the best answer
+1. Map out what each piece of evidence implies
+2. Reconcile apparent contradictions when possible
+3. Pick the answer that the evidence most directly supports
+4. Avoid speculation beyond what the evidence shows
 
 IMPORTANT: Format your final answer on its own line starting with: ANSWER:
 
-When reviewing other solutions: You are negative side. You disagree with the affirmative side's points. Provide
-your reasons and answers""",
+When reviewing other solutions: You are negative side. You disagree with the affirmative side's points.
+Provide your reasons and answer.""",
     }
 
     # Run debate with custom prompts
     result = await run_debate_with_custom_prompts(
         task=prompt,
-        model_client=model_client,
+        model_client=debater_clients,
         domain_config=domain,
         judge=judge,
         evaluator=evaluator,

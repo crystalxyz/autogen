@@ -10,7 +10,6 @@
 #SBATCH --partition=gupta
 #SBATCH --gres=gpu:nvidia_rtx_6000_ada_generation:1
 
-export HF_TOKEN=...
 # Initialize conda for the shell
 source /share/apps/software/anaconda3/etc/profile.d/conda.sh
 conda activate sglang-env

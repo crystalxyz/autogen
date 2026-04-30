@@ -97,7 +97,7 @@ async def main() -> None:
     # Read EVERYTHING from the instance dir BEFORE chdir-ing into the clean
     # workspace. The instance dir contains expected_answer.txt, prompt.txt,
     # and config.yaml — none of which the agents should be able to see, since
-    # a coder + shell-executor combination could trivially `cat` the ground
+    # a                + shell-executor combination could trivially `cat` the ground
     # truth and bypass the benchmark.
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
@@ -306,9 +306,13 @@ async def main() -> None:
         "evidence. Note that WebSurfer can click any search result to open "
         "the full Wikipedia article and read its entire body — do not rely "
         "on search-result snippets alone; click into the relevant article "
-        "and read it. The Assistant may plan and synthesize, and "
-        "ComputerTerminal may run code if useful, but facts must trace back "
-        "to WebSurfer output."
+        "and read it. The Assistant should plan and synthesize: if the "
+        "available evidence is partial, ambiguous, or does not directly "
+        "answer the question, the Assistant MUST explicitly say so and "
+        "request a specific additional Wikipedia lookup (name the page or "
+        "query). Only commit to a final answer when the evidence is "
+        "unambiguous. ComputerTerminal may run code if useful, but facts "
+        "must trace back to WebSurfer output."
     )
 
     # Stopping conditions: whichever fires first.
@@ -324,10 +328,10 @@ async def main() -> None:
         prompt=f"""Consider the following task:
 {task.strip()}
 
-Has the WebSurfer agent actually provided Wikipedia evidence in the conversation above?
-If no WebSurfer output with concrete evidence appears, reply "CONTINUE".
-Otherwise, if the WebSurfer evidence is sufficient to answer the question, reply "TERMINATE".
-Do NOT answer from prior knowledge — only terminate when Wikipedia evidence has been gathered.
+Does the above conversation suggest that the task has been solved?
+Reply with one word only: either "TERMINATE" or "CONTINUE".
+Do not include any other words in your response.
+Do not answer from prior knowledge — answers must be supported by evidence from Wikipedia retrieved during this conversation.
 """,
         model_client=orchestrator_client,
         call_label=orchestrator_call_label,
@@ -338,6 +342,7 @@ Do NOT answer from prior knowledge — only terminate when Wikipedia evidence ha
         model_client=orchestrator_client,
         termination_condition=llm_termination,
         max_turns=MAX_TURNS,
+        allow_repeated_speaker=True,
     )
 
     print(f"[TIMING] Import + setup overhead: {time.time() - _script_start:.2f}s", flush=True)
@@ -441,14 +446,15 @@ class LLMTermination(TerminationCondition):
             if self._call_label is not None:
                 self._call_label["value"] = "selector"
 
-        if isinstance(response.content, str) and self._termination_phrase in response.content:
-            self._terminated = True
-            finish_reason = (
-                message.content
-                if isinstance(message.content, str)
-                else content_to_str(message.content)
+        if isinstance(response.content, str):
+            tokens = [t.strip("*_.,!:`\"'") for t in response.content.split()]
+            decision = next(
+                (t.upper() for t in reversed(tokens) if t.upper() in ("TERMINATE", "CONTINUE")),
+                None,
             )
-            return StopMessage(content=finish_reason, source="LLMTermination")
+            if decision == self._termination_phrase:
+                self._terminated = True
+                return StopMessage(content=response.content, source="LLMTermination")
         return None
 
     async def reset(self) -> None:

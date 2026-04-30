@@ -2,6 +2,8 @@
 Agent implementations for multi-agent debate.
 """
 
+import asyncio
+
 from autogen_core import (
     DefaultTopicId,
     MessageContext,
@@ -53,52 +55,140 @@ class Debater(RoutedAgent):
         self._history: list[LLMMessage] = []
         self._buffer: dict[int, list[IntermediateDebaterResponse]] = {}
         self._round = 0
+        self._done = False  # set to True once a Final has been published (success or error)
+        # Cached on first message arrival so the error-recovery path can build
+        # placeholder Intermediates for rounds we couldn't complete.
+        self._latest_task: "DebateTask | None" = None
+        # Serialize handle_request invocations on this debater. autogen-core's
+        # SingleThreadedAgentRuntime does NOT serialize per-agent message
+        # handlers — concurrent handler tasks can interleave at await points.
+        # Without this lock, handle_response (triggered by neighbor
+        # Intermediates) can fire send_message → handle_request for round N+1
+        # while round N's `await client.create(...)` is still pending, causing
+        # _history to be mutated mid-call and producing requests like
+        # [system, user, user] that strict chat templates (gemma-3, Mistral,
+        # ...) reject with "Conversation roles must alternate".
+        self._request_lock = asyncio.Lock()
 
         # Use custom system prompt if provided, otherwise use domain default
         prompt = system_prompt if system_prompt is not None else domain_config.get_system_prompt()
         self._system_messages = [SystemMessage(content=prompt)]
 
+    async def _publish_error_final(self, exc: BaseException, round_at_failure: int) -> None:
+        """Emit placeholder Intermediates for the rounds we still owe neighbors,
+        then a placeholder FinalDebaterResponse so the Aggregator can reach
+        quorum (`len(buffer) >= num_debaters`) when this debater fails.
+
+        Why the Intermediates matter: in CIRCULAR (and other neighbor-based)
+        topologies, each handle_response only fires when buffer[round] reaches
+        num_neighbors. If we error out and never publish Intermediates for the
+        rounds we haven't completed, our neighbors deadlock waiting for input
+        that never arrives — they never call their next round and never
+        publish their own Finals. The Aggregator then sits idle and the task
+        ends with "No result collected".
+
+        round_at_failure = self._round at the time of failure (BEFORE the
+        increment that didn't run). With max_rounds=R, intermediate rounds
+        published on success are 1..R-1. Rounds we still owe neighbors are
+        range(round_at_failure + 1, R).
+        """
+        err_msg = f"<{type(exc).__name__}: {exc}>"
+        print(f"[{self._debater_id}] ERROR in round {round_at_failure}: {err_msg}", flush=True)
+        self._done = True
+
+        # Placeholder Intermediates for all unfinished rounds. Skip if we don't
+        # have a task reference (shouldn't happen — handle_request sets it
+        # before the try block — but defensive).
+        if self._latest_task is not None:
+            for r in range(round_at_failure + 1, self._max_rounds):
+                await self.publish_message(
+                    IntermediateDebaterResponse(
+                        solution="",
+                        explanation=err_msg,
+                        original_task=self._latest_task,
+                        round=r,
+                        debater_id=self._debater_id,
+                        metadata={"failed": True, "placeholder": True},
+                    ),
+                    topic_id=DefaultTopicId(type=self._topic_type),
+                )
+
+        await self.publish_message(
+            FinalDebaterResponse(
+                solution="",
+                debater_id=self._debater_id,
+                explanation=err_msg,
+                confidence=0.0,
+                metadata={"failed": True, "round": round_at_failure},
+            ),
+            topic_id=DefaultTopicId(),
+        )
+
     @message_handler
     async def handle_request(self, message: DebaterRequest, ctx: MessageContext) -> None:
-        print(f"\n{'='*60}")
-        print(f"[{self._debater_id}] Round {self._round + 1}/{self._max_rounds}")
-        print(f"{'='*60}")
+        if self._done:
+            return  # already published a Final (success or error)
 
-        self._history.append(UserMessage(content=message.content, source="user"))
-        result = await self._model_client.create(self._system_messages + self._history)
-        response = str(result.content) if not isinstance(result.content, str) else result.content
-        self._history.append(AssistantMessage(content=response, source=self._debater_id))
+        async with self._request_lock:
+            # Re-check after acquiring the lock — _done may have flipped while
+            # we were queued behind a prior invocation that errored out.
+            if self._done:
+                return
 
-        solution = self._domain_config.extract_solution(response)
-        self._round += 1
+            # Cache the task reference for the error-recovery path (placeholder
+            # Intermediates need original_task to be valid IntermediateDebaterResponses).
+            self._latest_task = message.original_task
 
-        print(f"[{self._debater_id}] Response:")
-        print(f"{'-'*40}")
-        print(response[:2000] + ("..." if len(response) > 2000 else ""))
-        print(f"{'-'*40}")
-        print(f"[{self._debater_id}] Extracted solution:")
-        print(solution[:1000] + ("..." if len(solution) > 1000 else ""))
-        print()
+            print(f"\n{'='*60}")
+            print(f"[{self._debater_id}] Round {self._round + 1}/{self._max_rounds}")
+            print(f"{'='*60}")
 
-        if self._round >= self._max_rounds:
-            await self.publish_message(
-                FinalDebaterResponse(solution=solution, debater_id=self._debater_id, explanation=response),
-                topic_id=DefaultTopicId(),
-            )
-        else:
-            await self.publish_message(
-                IntermediateDebaterResponse(
-                    solution=solution,
-                    explanation=response,
-                    original_task=message.original_task,
-                    round=self._round,
-                    debater_id=self._debater_id,
-                ),
-                topic_id=DefaultTopicId(type=self._topic_type),
-            )
+            try:
+                self._history.append(UserMessage(content=message.content, source="user"))
+                result = await self._model_client.create(self._system_messages + self._history)
+                response = str(result.content) if not isinstance(result.content, str) else result.content
+                self._history.append(AssistantMessage(content=response, source=self._debater_id))
+
+                solution = self._domain_config.extract_solution(response)
+                self._round += 1
+            except Exception as e:
+                await self._publish_error_final(e, self._round)
+                return
+
+            print(f"[{self._debater_id}] Response:")
+            print(f"{'-'*40}")
+            print(response[:2000] + ("..." if len(response) > 2000 else ""))
+            print(f"{'-'*40}")
+            print(f"[{self._debater_id}] Extracted solution:")
+            print(solution[:1000] + ("..." if len(solution) > 1000 else ""))
+            print()
+
+            if self._round >= self._max_rounds:
+                self._done = True
+                await self.publish_message(
+                    FinalDebaterResponse(solution=solution, debater_id=self._debater_id, explanation=response),
+                    topic_id=DefaultTopicId(),
+                )
+            else:
+                await self.publish_message(
+                    IntermediateDebaterResponse(
+                        solution=solution,
+                        explanation=response,
+                        original_task=message.original_task,
+                        round=self._round,
+                        debater_id=self._debater_id,
+                    ),
+                    topic_id=DefaultTopicId(type=self._topic_type),
+                )
 
     @message_handler
     async def handle_response(self, message: IntermediateDebaterResponse, ctx: MessageContext) -> None:
+        if self._done:
+            return  # ignore neighbor traffic after we've published our Final
+
+        # Also cache here so we can recover even if our own handle_request never ran.
+        self._latest_task = message.original_task
+
         self._buffer.setdefault(message.round, []).append(message)
 
         if len(self._buffer[message.round]) >= self._num_neighbors:
@@ -113,10 +203,15 @@ class Debater(RoutedAgent):
                 round=message.round + 1,
             )
             self._buffer.pop(message.round)
-            await self.send_message(
-                DebaterRequest(content=prompt, original_task=message.original_task, round=message.round),
-                self.id,
-            )
+            try:
+                await self.send_message(
+                    DebaterRequest(content=prompt, original_task=message.original_task, round=message.round),
+                    self.id,
+                )
+            except Exception as e:
+                # Refinement send_message itself failed (rare — usually only if
+                # the recipient agent is gone). Treat as terminal for this debater.
+                await self._publish_error_final(e, message.round)
 
 
 @default_subscription

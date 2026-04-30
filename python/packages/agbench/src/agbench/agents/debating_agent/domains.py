@@ -202,18 +202,39 @@ Original question:
 Round {round} - Explain your reasoning, then state your final answer starting with: ANSWER:"""
 
     def extract_solution(self, response: str) -> str:
-        match = re.search(r'ANSWER[:\s]+(.+?)(?:\n|$)', response, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
+        # Strip <think>...</think> blocks if a model returned inline reasoning
+        # without a server-side parser. Otherwise the regex below would match
+        # ANSWER: stubs the model wrote *while* thinking.
+        cleaned = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL | re.IGNORECASE)
 
-        # Return last paragraph
-        paragraphs = response.strip().split('\n\n')
-        for para in reversed(paragraphs):
-            para = para.strip()
-            if 10 < len(para) < 500:
-                return para
+        # Use the LAST match for ANSWER:/FINAL ANSWER: — the first match is
+        # frequently the system-prompt instruction echoed back ("Format your
+        # final answer ... starting with: ANSWER:") or a tentative answer the
+        # model later revises. Only a non-empty captured value counts.
+        for pat in (
+            r"FINAL\s*ANSWER\s*[:\-]?\s*(.+?)(?:\n|$)",
+            r"\*{0,2}ANSWER\*{0,2}\s*[:\-]\s*(.+?)(?:\n|$)",
+        ):
+            for m in reversed(re.findall(pat, cleaned, re.IGNORECASE)):
+                ans = m.strip().strip("*` \"'")
+                if ans:
+                    return ans
 
-        return response.strip()[-500:]
+        # "the answer is ..." natural-language fallback
+        m = re.search(
+            r"(?:the\s+)?(?:final\s+)?answer\s+is\s*[:\-]?\s*(.+?)(?:\n|[.;]|$)",
+            cleaned,
+            re.IGNORECASE,
+        )
+        if m and m.group(1).strip():
+            return m.group(1).strip().strip("*` \"'")
+
+        # Last non-empty paragraph (any length — short answers are valid).
+        paragraphs = [p.strip() for p in cleaned.strip().split("\n\n") if p.strip()]
+        if paragraphs:
+            return paragraphs[-1][:500]
+
+        return cleaned.strip()[-500:]
 
 
 def get_domain_config(domain: str) -> DomainConfig:

@@ -1,0 +1,23 @@
+# HumanEval AgentChat: google/gemma-3-27b-it (QAT + AWQ int4; bf16 does not fit 48 GB)
+
+servers:
+  - model: "gaunernst/gemma-3-27b-it-qat-autoawq"
+    port: 40014
+    tp: 1
+    mem_fraction: 0.85
+    device: 0
+    reasoning_parser: null
+    tool_call_parser: null
+    extra_args:
+      - "--quantization"
+      - "awq"
+
+benchmarks:
+  - name: "humaneval_gemma_27b"
+    scenario_file: "benchmarks/HumanEval/Tasks/human_eval_AgentChat.jsonl"
+    server_port: 40014
+    repeat: 5
+
+server_startup_timeout: 900
+server_health_check_interval: 5
+shutdown_timeout: 30

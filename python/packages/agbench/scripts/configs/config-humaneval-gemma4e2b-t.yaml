@@ -1,0 +1,23 @@
+# HumanEval AgentChat: google/gemma-4-E2B-it thinking
+
+servers:
+  - model: "google/gemma-4-E2B-it"
+    port: 30022
+    tp: 1
+    mem_fraction: 0.9
+    device: 0
+    reasoning_parser: gemma4
+    tool_call_parser: gemma4
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+benchmarks:
+  - name: "humaneval_gemma4_e2b_t"
+    scenario_file: "benchmarks/HumanEval/Tasks/human_eval_AgentChat.jsonl"
+    server_port: 30022
+    repeat: 3
+
+server_startup_timeout: 600
+server_health_check_interval: 5
+shutdown_timeout: 30

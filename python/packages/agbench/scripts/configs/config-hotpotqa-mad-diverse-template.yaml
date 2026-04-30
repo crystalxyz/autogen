@@ -1,0 +1,110 @@
+# Config template for HotpotQA Multi-Agent Debate (MAD) with diverse models.
+# 4 debaters + judge (5 distinct providers).  Mistral was removed because
+# autogen-ext loses the AssistantMessage on round-trip with Mistral's strict
+# chat template (3rd-call request becomes [system,user,assistant,user,user]
+# and the template raises 400).  Replaced with Nemotron-H (hybrid Mamba +
+# Transformer) at DebaterC.
+#
+# Section keys are mapped by scenario.py:
+#   model_config_debaterA -> DebaterA  (Google:    gemma-3-4b-it)
+#   model_config_debaterB -> DebaterB  (Meta:      Llama-3.1-8B-Instruct)
+#   model_config_debaterC -> DebaterC  (NVIDIA:    Nemotron-H-8B-Reasoning-128K)
+#   model_config_debaterD -> DebaterD  (Microsoft: Phi-4 14B)
+#   model_config_judge    -> Judge     (Alibaba:   Qwen3-8B, thinking on)
+#
+# `model_config` is a placeholder kept so generate_agbench_config still has a
+# section to update; it is not used by scenario.py if all per-role sections
+# are present.
+
+model_config:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: placeholder
+    base_url: http://0.0.0.0:30055/v1
+    api_key: EMPTY
+
+# DebaterA — google/gemma-3-4b-it
+# function_calling=false: gemma-3 has no native tool-call schema; setting true
+# can cause autogen-ext to inject tool metadata that gemma's strict chat
+# template rejects with "Conversation roles must alternate user/assistant/...".
+model_config_debaterA:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: google/gemma-3-4b-it
+    base_url: http://0.0.0.0:30056/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: gemma3
+      vision: false
+      function_calling: false
+      json_output: true
+      structured_output: false
+
+# DebaterB — meta-llama/Llama-3.1-8B-Instruct
+model_config_debaterB:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: meta-llama/Llama-3.1-8B-Instruct
+    base_url: http://0.0.0.0:30057/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: llama3
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+
+# DebaterC — nvidia/Nemotron-H-8B-Reasoning-128K (hybrid Mamba + Transformer)
+model_config_debaterC:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: nvidia/Nemotron-H-8B-Reasoning-128K
+    base_url: http://0.0.0.0:30058/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: nemotron
+      vision: false
+      function_calling: false
+      json_output: true
+      structured_output: false
+
+# DebaterD — microsoft/phi-4 (14B)
+model_config_debaterD:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: microsoft/phi-4
+    base_url: http://0.0.0.0:30059/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: phi
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+
+# Judge — Qwen/Qwen3-8B (thinking on)
+model_config_judge:
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: Qwen/Qwen3-8B
+    base_url: http://0.0.0.0:30055/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: qwen3
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true

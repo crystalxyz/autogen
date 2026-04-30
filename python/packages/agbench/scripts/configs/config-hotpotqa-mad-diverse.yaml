@@ -1,0 +1,88 @@
+# HotpotQA Multi-Agent Debate (MAD) with diverse small models.
+# 4 debaters + judge (5 distinct providers).
+#
+#   DebaterA : google/gemma-3-4b-it                          port 30056
+#   DebaterB : meta-llama/Llama-3.1-8B-Instruct              port 30057
+#   DebaterC : nvidia/Nemotron-H-8B-Reasoning-128K (hybrid)  port 30058
+#   DebaterD : microsoft/phi-4 (14B)                         port 30059
+#   Judge    : Qwen/Qwen3-8B (thinking on)                   port 30055
+#
+# IMPORTANT: A single 48 GB GPU cannot host all five servers concurrently.
+# This config is laid out as if 5 GPUs were present (device 0..4). On a
+# single-GPU host, smoke-test each model individually first (see
+# mad_diverse_models.md).
+
+servers:
+  - model: "Qwen/Qwen3-8B"
+    port: 30055
+    tp: 1
+    mem_fraction: 0.92
+    device: 0
+    reasoning_parser: qwen3
+    tool_call_parser: qwen
+    extra_args: ["--cuda-graph-max-bs", "8"]
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+
+  - model: "google/gemma-3-4b-it"
+    port: 30056
+    tp: 1
+    mem_fraction: 0.92
+    device: 1
+    reasoning_parser: null
+    tool_call_parser: null
+    log_requests: true  # capture the 400-Bad-Request payload for debugging
+    extra_args: ["--cuda-graph-max-bs", "8"]
+
+  # Llama-3.1-8B-Instruct: gated repo (the user's HF_TOKEN lacks meta-llama
+  # access), but model files are already in a sibling shared cache. Point
+  # --model-path at the snapshot dir, force offline mode, and use
+  # --served-model-name so the OpenAI client sees the canonical id.
+  - model: "/share/abdelfattah/temp_yc2367/huggingface/hub/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659"
+    port: 30057
+    tp: 1
+    mem_fraction: 0.92
+    device: 2
+    reasoning_parser: null
+    tool_call_parser: llama3
+    extra_args: ["--served-model-name", "meta-llama/Llama-3.1-8B-Instruct", "--cuda-graph-max-bs", "8"]
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+  - model: "nvidia/Nemotron-H-8B-Reasoning-128K"
+    port: 30058
+    tp: 1
+    mem_fraction: 0.92
+    device: 3
+    reasoning_parser: null
+    tool_call_parser: null
+    extra_args: ["--cuda-graph-max-bs", "8"]
+
+  - model: "microsoft/phi-4"
+    port: 30059
+    tp: 1
+    mem_fraction: 0.92
+    device: 4
+    reasoning_parser: null
+    tool_call_parser: null
+    extra_args: ["--cuda-graph-max-bs", "8"]
+
+benchmarks:
+  - name: "hotpotqa_mad_diverse_3debaters"
+    scenario_file: "benchmarks/HotpotQA/Tasks/hotpotqa_validation_distractor__MAD_sanity100_seed42.jsonl"
+    config_template: "scripts/configs/config-hotpotqa-mad-diverse-template.yaml"
+    server_port: 30055  # primary (placeholder model_config gets updated to this)
+    server_port_map:
+      model_config_debaterA: 30056
+      model_config_debaterB: 30057
+      model_config_debaterC: 30058
+      model_config_debaterD: 30059
+      model_config_judge: 30055
+    num_concurrent: 1
+    repeat: 1
+
+server_startup_timeout: 900
+server_health_check_interval: 5
+shutdown_timeout: 30

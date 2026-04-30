@@ -48,7 +48,7 @@ async def main() -> None:
     termination = TextMentionTermination(text="TERMINATE", sources=["executor"])
 
     # Define a team
-    agent_team = RoundRobinGroupChat([coder_agent, executor], max_turns=2, termination_condition=termination)
+    agent_team = RoundRobinGroupChat([coder_agent, executor], max_turns=12, termination_condition=termination)
 
     prompt = ""
     with open("prompt.txt", "rt") as fh:

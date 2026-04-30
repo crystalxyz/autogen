@@ -1,20 +1,22 @@
-# HotpotQA SelectorGroupChat: Qwen/Qwen3-1.7B thinking
+# HotpotQA SelectorGroupChat: google/gemma-4-E2B-it non-thinking
 
 servers:
-  - model: "Qwen/Qwen3-1.7B"
-    port: 30012
+  - model: "google/gemma-4-E2B-it"
+    port: 30021
     tp: 1
     mem_fraction: 0.9
     device: 0
+    reasoning_parser: gemma4
+    tool_call_parser: gemma4
     extra_body:
       chat_template_kwargs:
-        enable_thinking: true
+        enable_thinking: false
 
 benchmarks:
-  - name: "hotpotqa_selector_qwen3_1.7b_t"
+  - name: "hotpotqa_selector_gemma4_e2b_nt"
     scenario_file: "benchmarks/HotpotQA/Tasks/hotpotqa_validation_fullwiki__SelectorGroupChat_sanity100_seed42.jsonl"
     config_template: "scripts/configs/config-hotpotqa-selector-template.yaml"
-    server_port: 30012
+    server_port: 30021
     num_concurrent: 2
     repeat: 3
 

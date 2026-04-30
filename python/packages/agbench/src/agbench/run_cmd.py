@@ -209,6 +209,11 @@ def get_timestamped_results_dir(scenario_name: str, base_dir: str = "Results") -
         Directory path in format: {base_dir}/{scenario_name}_{timestamp}
         Example: Results/human_eval_20260106_143025
     """
+    # Resume hook: AGBENCH_RESULTS_DIR_OVERRIDE forces a specific results dir
+    # (used by the rerun workflow to fill in missing reps in an existing run).
+    override = os.environ.get("AGBENCH_RESULTS_DIR_OVERRIDE")
+    if override:
+        return override
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     hash = random.randint(0, 999)
     return os.path.join(base_dir, f"{scenario_name}_{timestamp}_{hash}")

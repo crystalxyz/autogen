@@ -47,6 +47,8 @@ class SGLangServerConfig:
     log_requests: bool = False  # Enable request/response logging for trajectory analysis
     max_tokens: int | None = None  # Maximum tokens to generate in completion
     min_tokens: int | None = None  # Minimum tokens to generate in completion
+    reasoning_parser: str | None = "qwen3"  # sglang --reasoning-parser (set None to disable)
+    tool_call_parser: str | None = "qwen"  # sglang --tool-call-parser (set None to disable)
     extra_body: dict[str, Any] = field(default_factory=dict)  # Extra body params for OpenAI API (e.g., chat_template_kwargs)
     extra_args: list[str] = field(default_factory=list)  # Additional sglang arguments
     env: dict[str, str] = field(default_factory=dict)  # Environment variables
@@ -273,11 +275,12 @@ class SGLangServer:
             str(self.config.dp),
             "--mem-fraction-static",
             str(self.config.mem_fraction),
-            "--reasoning-parser",
-            "qwen3",
-            "--tool-call-parser",
-            "qwen25",
         ]
+
+        if self.config.reasoning_parser:
+            cmd.extend(["--reasoning-parser", self.config.reasoning_parser])
+        if self.config.tool_call_parser:
+            cmd.extend(["--tool-call-parser", self.config.tool_call_parser])
 
         # Enable request logging for trajectory analysis
         if self.config.log_requests:

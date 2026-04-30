@@ -8,6 +8,10 @@ servers:
     tp: 1
     mem_fraction: 0.5
     device: 0
+    reasoning_parser: null
+    tool_call_parser: null
+    extra_args:
+      - "--disable-piecewise-cuda-graph"
     # max_tokens: 3000
     # min_tokens: 3000
     # extra_body:
