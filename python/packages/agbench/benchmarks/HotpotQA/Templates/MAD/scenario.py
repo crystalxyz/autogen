@@ -17,6 +17,7 @@ from collections import Counter
 from typing import Any
 
 import yaml
+from agbench.scenario_logging import emit_llm_call, emit_run_summary
 from autogen_core import DefaultTopicId, SingleThreadedAgentRuntime, TypeSubscription
 from autogen_core.models import ChatCompletionClient, SystemMessage, UserMessage
 
@@ -342,6 +343,23 @@ async def main() -> None:
     #   [ROUND] round=N wallclock_s=... debaters=N
     # wallclock_s = max(end_time over debaters in round N) - min(start_time over them).
     round_state: dict[int, dict[str, float]] = {}
+    # Global token accumulator across debater + judge LLM calls. The MAD
+    # runtime is single-threaded (SingleThreadedAgentRuntime), but multiple
+    # debater coroutines can be in-flight on the asyncio event loop within a
+    # round, so we guard the accumulator with an asyncio.Lock. The lock is
+    # held only across plain ints/dict ops (no awaits inside) so contention
+    # is negligible.
+    global_usage = {"prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0}
+    rounds_completed = {"n": 0}
+    usage_lock = asyncio.Lock()
+
+    async def _add_global_usage(usage) -> None:
+        if usage is None:
+            return
+        async with usage_lock:
+            global_usage["prompt_tokens"] += int(getattr(usage, "prompt_tokens", 0) or 0)
+            global_usage["completion_tokens"] += int(getattr(usage, "completion_tokens", 0) or 0)
+            global_usage["reasoning_tokens"] += int(getattr(usage, "reasoning_tokens", 0) or 0)
 
     def _instrument_debater(client: ChatCompletionClient, debater_id: str) -> None:
         _orig = client.create
@@ -366,11 +384,22 @@ async def main() -> None:
                 usage = getattr(result, "usage", None) if result is not None else None
                 pt = getattr(usage, "prompt_tokens", None) if usage else None
                 ct = getattr(usage, "completion_tokens", None) if usage else None
+                rt = getattr(usage, "reasoning_tokens", None) if usage else None
                 print(
                     f"[LATENCY] role=debater label={debater_id} round={round_n} "
                     f"duration_s={dt:.3f} prompt_tokens={pt} completion_tokens={ct}",
                     flush=True,
                 )
+                emit_llm_call(
+                    agent=debater_id,
+                    duration_s=dt,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    reasoning_tokens=rt,
+                    role="debater",
+                    round_idx=round_n,
+                )
+                await _add_global_usage(usage)
                 rs["end"] = max(rs["end"], t1)
                 rs["finished"] += 1
                 if rs["finished"] >= num_debaters:
@@ -379,6 +408,8 @@ async def main() -> None:
                         f"[ROUND] round={round_n} wallclock_s={wc:.3f} debaters={num_debaters}",
                         flush=True,
                     )
+                    # Track the highest completed debate round (1-indexed).
+                    rounds_completed["n"] = max(rounds_completed["n"], round_n + 1)
 
         client.create = _timed
 
@@ -396,10 +427,20 @@ async def main() -> None:
                 usage = getattr(result, "usage", None) if result is not None else None
                 pt = getattr(usage, "prompt_tokens", None) if usage else None
                 ct = getattr(usage, "completion_tokens", None) if usage else None
+                rt = getattr(usage, "reasoning_tokens", None) if usage else None
                 print(
                     f"[LATENCY] role=judge label=judge duration_s={dt:.3f} prompt_tokens={pt} completion_tokens={ct}",
                     flush=True,
                 )
+                emit_llm_call(
+                    agent="judge",
+                    duration_s=dt,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    reasoning_tokens=rt,
+                    role="judge",
+                )
+                await _add_global_usage(usage)
 
         client.create = _timed
 
@@ -515,6 +556,28 @@ Provide your reasons and answer.""",
         print(f"Expected: {expected_answer}")
 
     print(f"\nTime: {time.time() - start_time:.2f}s")
+
+    # Canonical end-of-run summary parsed by run_cmd into result.json.
+    # A "round" in MAD is one debate round in which every debater contributes;
+    # we report the highest completed round number (1-indexed). The judge
+    # call happens after the rounds and is aggregated into the token totals
+    # but does not increment the round counter.
+    class _Usage:
+        def __init__(self, p, c, r):
+            self.prompt_tokens = p
+            self.completion_tokens = c
+            self.reasoning_tokens = r
+
+    emit_run_summary(
+        [
+            _Usage(
+                global_usage["prompt_tokens"],
+                global_usage["completion_tokens"],
+                global_usage["reasoning_tokens"],
+            )
+        ],
+        rounds=rounds_completed["n"],
+    )
 
 
 if __name__ == "__main__":

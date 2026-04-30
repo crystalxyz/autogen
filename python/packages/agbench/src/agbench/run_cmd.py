@@ -170,31 +170,57 @@ def get_scenario_elapsed_time(results_dir: str) -> Optional[float]:
         return None
 
 
-def get_scenario_turns(results_dir: str) -> Optional[int]:
+# Canonical summary lines emitted by ``agbench.scenario_logging.emit_run_summary``:
+#   [TOKENS_TOTAL] prompt_tokens=<int> completion_tokens=<int> reasoning_tokens=<int>
+#   [ROUNDS_TOTAL] rounds=<int>
+_TOKENS_TOTAL_RE = re.compile(
+    r"\[TOKENS_TOTAL\]\s+"
+    r"prompt_tokens=(?P<prompt>\d+)\s+"
+    r"completion_tokens=(?P<completion>\d+)\s+"
+    r"reasoning_tokens=(?P<reasoning>\d+)"
+)
+_ROUNDS_TOTAL_RE = re.compile(r"\[ROUNDS_TOTAL\]\s+rounds=(?P<rounds>\d+)")
+
+
+def get_scenario_run_summary(results_dir: str) -> Dict[str, Optional[int]]:
     """
-    Get the number of conversation turns from console_log.txt.
+    Parse end-of-scenario summary lines from console_log.txt.
 
-    Counts occurrences of "TextMessage" in the log.
+    Returns a dict with keys ``rounds``, ``total_prompt_tokens``,
+    ``total_completion_tokens``, ``total_reasoning_tokens``. Each value is
+    None if the corresponding line was not emitted by the scenario.
 
-    Args:
-        results_dir: Path to the repetition results directory
-
-    Returns:
-        Number of turns, or None if not available
+    Uses the *last* occurrence of each line so multi-stage scenarios that
+    emit summaries multiple times are handled correctly.
     """
     console_log = os.path.join(results_dir, "console_log.txt")
+    summary: Dict[str, Optional[int]] = {
+        "rounds": None,
+        "total_prompt_tokens": None,
+        "total_completion_tokens": None,
+        "total_reasoning_tokens": None,
+    }
     if not os.path.isfile(console_log):
-        return None
+        return summary
 
     try:
         with open(console_log, "rt") as fh:
             content = fh.read()
-            count = content.count("TextMessage")
-            if count == 0:
-                return None
-            return max(count - 1, 0)
     except OSError:
-        return None
+        return summary
+
+    tokens_matches = list(_TOKENS_TOTAL_RE.finditer(content))
+    if tokens_matches:
+        last = tokens_matches[-1]
+        summary["total_prompt_tokens"] = int(last.group("prompt"))
+        summary["total_completion_tokens"] = int(last.group("completion"))
+        summary["total_reasoning_tokens"] = int(last.group("reasoning"))
+
+    rounds_matches = list(_ROUNDS_TOTAL_RE.finditer(content))
+    if rounds_matches:
+        summary["rounds"] = int(rounds_matches[-1].group("rounds"))
+
+    return summary
 
 
 def get_timestamped_results_dir(scenario_name: str, base_dir: str = "Results") -> str:
@@ -445,7 +471,7 @@ def run_scenarios(
                         logged_elapsed = get_scenario_elapsed_time(results_repetition)
                         if logged_elapsed is not None:
                             elapsed_time = logged_elapsed
-                        turns = get_scenario_turns(results_repetition)
+                        summary = get_scenario_run_summary(results_repetition)
 
                         hook_manager = get_hook_manager()
                         hook_manager.emit(
@@ -455,7 +481,10 @@ def run_scenarios(
                                 repetition_id=i,
                                 success=success,
                                 elapsed_time=elapsed_time,
-                                turns=turns,
+                                rounds=summary["rounds"],
+                                total_prompt_tokens=summary["total_prompt_tokens"],
+                                total_completion_tokens=summary["total_completion_tokens"],
+                                total_reasoning_tokens=summary["total_reasoning_tokens"],
                             )
                         )
 

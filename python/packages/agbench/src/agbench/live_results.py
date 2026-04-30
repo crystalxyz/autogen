@@ -21,7 +21,10 @@ class RepetitionResult:
     status: str = "pending"  # pending, running, completed
     success: Optional[bool] = None
     elapsed_time: Optional[float] = None
-    turns: Optional[int] = None
+    rounds: Optional[int] = None
+    total_prompt_tokens: Optional[int] = None
+    total_completion_tokens: Optional[int] = None
+    total_reasoning_tokens: Optional[int] = None
     start_time: Optional[str] = None
     end_time: Optional[str] = None
 
@@ -31,7 +34,10 @@ class RepetitionResult:
             "status": self.status,
             "success": self.success,
             "elapsed_time": self.elapsed_time,
-            "turns": self.turns,
+            "rounds": self.rounds,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_reasoning_tokens": self.total_reasoning_tokens,
             "start_time": self.start_time,
             "end_time": self.end_time,
         }
@@ -51,7 +57,10 @@ class TaskResult:
         failed = 0
         running = 0
         elapsed_times = []
-        turn_counts = []
+        round_counts = []
+        prompt_tokens_list = []
+        completion_tokens_list = []
+        reasoning_tokens_list = []
 
         for rep in self.repetitions.values():
             if rep.status == "completed":
@@ -62,8 +71,14 @@ class TaskResult:
                     failed += 1
                 if rep.elapsed_time is not None:
                     elapsed_times.append(rep.elapsed_time)
-                if rep.turns is not None:
-                    turn_counts.append(rep.turns)
+                if rep.rounds is not None:
+                    round_counts.append(rep.rounds)
+                if rep.total_prompt_tokens is not None:
+                    prompt_tokens_list.append(rep.total_prompt_tokens)
+                if rep.total_completion_tokens is not None:
+                    completion_tokens_list.append(rep.total_completion_tokens)
+                if rep.total_reasoning_tokens is not None:
+                    reasoning_tokens_list.append(rep.total_reasoning_tokens)
             elif rep.status == "running":
                 running += 1
 
@@ -72,10 +87,18 @@ class TaskResult:
         max_time = max(elapsed_times) if elapsed_times else None
         total_time = sum(elapsed_times) if elapsed_times else None
 
-        avg_turns = sum(turn_counts) / len(turn_counts) if turn_counts else None
-        min_turns = min(turn_counts) if turn_counts else None
-        max_turns = max(turn_counts) if turn_counts else None
-        total_turns = sum(turn_counts) if turn_counts else None
+        avg_rounds = sum(round_counts) / len(round_counts) if round_counts else None
+        min_rounds = min(round_counts) if round_counts else None
+        max_rounds = max(round_counts) if round_counts else None
+        total_rounds = sum(round_counts) if round_counts else None
+
+        total_prompt_tokens = sum(prompt_tokens_list) if prompt_tokens_list else None
+        total_completion_tokens = (
+            sum(completion_tokens_list) if completion_tokens_list else None
+        )
+        total_reasoning_tokens = (
+            sum(reasoning_tokens_list) if reasoning_tokens_list else None
+        )
 
         success_rate = successful / completed if completed > 0 else None
 
@@ -90,10 +113,13 @@ class TaskResult:
             "min_time": round(min_time, 2) if min_time is not None else None,
             "max_time": round(max_time, 2) if max_time is not None else None,
             "total_time": round(total_time, 2) if total_time is not None else None,
-            "avg_turns": round(avg_turns, 2) if avg_turns is not None else None,
-            "min_turns": min_turns,
-            "max_turns": max_turns,
-            "total_turns": total_turns,
+            "avg_rounds": round(avg_rounds, 2) if avg_rounds is not None else None,
+            "min_rounds": min_rounds,
+            "max_rounds": max_rounds,
+            "total_rounds": total_rounds,
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_reasoning_tokens": total_reasoning_tokens,
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -126,13 +152,17 @@ class RunResult:
         running_repetitions = 0
         pending_repetitions = 0
         all_elapsed_times = []
-        all_turn_counts = []
         task_avg_times = []
-        task_avg_turns = []
+
+        all_round_counts: list[int] = []
+        all_prompt_tokens: list[int] = []
+        all_completion_tokens: list[int] = []
+        all_reasoning_tokens: list[int] = []
+        task_avg_rounds: list[float] = []
 
         for task in self.tasks.values():
             task_times = []
-            task_turns = []
+            task_rounds: list[int] = []
             for rep in task.repetitions.values():
                 total_repetitions += 1
                 if rep.status == "completed":
@@ -144,9 +174,15 @@ class RunResult:
                     if rep.elapsed_time is not None:
                         all_elapsed_times.append(rep.elapsed_time)
                         task_times.append(rep.elapsed_time)
-                    if rep.turns is not None:
-                        all_turn_counts.append(rep.turns)
-                        task_turns.append(rep.turns)
+                    if rep.rounds is not None:
+                        all_round_counts.append(rep.rounds)
+                        task_rounds.append(rep.rounds)
+                    if rep.total_prompt_tokens is not None:
+                        all_prompt_tokens.append(rep.total_prompt_tokens)
+                    if rep.total_completion_tokens is not None:
+                        all_completion_tokens.append(rep.total_completion_tokens)
+                    if rep.total_reasoning_tokens is not None:
+                        all_reasoning_tokens.append(rep.total_reasoning_tokens)
                 elif rep.status == "running":
                     running_repetitions += 1
                 else:
@@ -155,8 +191,8 @@ class RunResult:
             # Calculate per-task averages
             if task_times:
                 task_avg_times.append(sum(task_times) / len(task_times))
-            if task_turns:
-                task_avg_turns.append(sum(task_turns) / len(task_turns))
+            if task_rounds:
+                task_avg_rounds.append(sum(task_rounds) / len(task_rounds))
 
         # Calculate overall metrics
         success_rate = (
@@ -179,18 +215,36 @@ class RunResult:
             else None
         )
 
-        # Turn statistics
-        total_turns = sum(all_turn_counts) if all_turn_counts else None
-        avg_turns_per_rep = (
-            total_turns / len(all_turn_counts)
-            if all_turn_counts
+        # Round statistics (scenario-defined; null when not provided)
+        total_rounds = sum(all_round_counts) if all_round_counts else None
+        avg_rounds_per_rep = (
+            total_rounds / len(all_round_counts) if all_round_counts else None
+        )
+        min_rounds = min(all_round_counts) if all_round_counts else None
+        max_rounds = max(all_round_counts) if all_round_counts else None
+        avg_rounds_per_task = (
+            sum(task_avg_rounds) / len(task_avg_rounds) if task_avg_rounds else None
+        )
+
+        # Token totals across all repetitions
+        total_prompt_tokens = sum(all_prompt_tokens) if all_prompt_tokens else None
+        total_completion_tokens = (
+            sum(all_completion_tokens) if all_completion_tokens else None
+        )
+        total_reasoning_tokens = (
+            sum(all_reasoning_tokens) if all_reasoning_tokens else None
+        )
+        avg_prompt_tokens_per_rep = (
+            total_prompt_tokens / len(all_prompt_tokens) if all_prompt_tokens else None
+        )
+        avg_completion_tokens_per_rep = (
+            total_completion_tokens / len(all_completion_tokens)
+            if all_completion_tokens
             else None
         )
-        min_turns = min(all_turn_counts) if all_turn_counts else None
-        max_turns = max(all_turn_counts) if all_turn_counts else None
-        avg_turns_per_task = (
-            sum(task_avg_turns) / len(task_avg_turns)
-            if task_avg_turns
+        avg_reasoning_tokens_per_rep = (
+            total_reasoning_tokens / len(all_reasoning_tokens)
+            if all_reasoning_tokens
             else None
         )
 
@@ -208,11 +262,29 @@ class RunResult:
             "avg_time_per_task": round(avg_time_per_task, 2) if avg_time_per_task is not None else None,
             "min_time": round(min_time, 2) if min_time is not None else None,
             "max_time": round(max_time, 2) if max_time is not None else None,
-            "total_turns": total_turns,
-            "avg_turns_per_repetition": round(avg_turns_per_rep, 2) if avg_turns_per_rep is not None else None,
-            "avg_turns_per_task": round(avg_turns_per_task, 2) if avg_turns_per_task is not None else None,
-            "min_turns": min_turns,
-            "max_turns": max_turns,
+            "total_rounds": total_rounds,
+            "avg_rounds_per_repetition": round(avg_rounds_per_rep, 2) if avg_rounds_per_rep is not None else None,
+            "avg_rounds_per_task": round(avg_rounds_per_task, 2) if avg_rounds_per_task is not None else None,
+            "min_rounds": min_rounds,
+            "max_rounds": max_rounds,
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_reasoning_tokens": total_reasoning_tokens,
+            "avg_prompt_tokens_per_repetition": (
+                round(avg_prompt_tokens_per_rep, 2)
+                if avg_prompt_tokens_per_rep is not None
+                else None
+            ),
+            "avg_completion_tokens_per_repetition": (
+                round(avg_completion_tokens_per_rep, 2)
+                if avg_completion_tokens_per_rep is not None
+                else None
+            ),
+            "avg_reasoning_tokens_per_repetition": (
+                round(avg_reasoning_tokens_per_rep, 2)
+                if avg_reasoning_tokens_per_rep is not None
+                else None
+            ),
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -360,7 +432,10 @@ class LiveResultTracker:
         rep.status = "completed"
         rep.success = event.success
         rep.elapsed_time = event.elapsed_time
-        rep.turns = event.turns
+        rep.rounds = event.rounds
+        rep.total_prompt_tokens = event.total_prompt_tokens
+        rep.total_completion_tokens = event.total_completion_tokens
+        rep.total_reasoning_tokens = event.total_reasoning_tokens
         rep.end_time = event.timestamp.isoformat()
 
     def _on_execution_start(self, event: Event) -> None:

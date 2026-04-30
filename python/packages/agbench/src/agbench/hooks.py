@@ -37,7 +37,10 @@ class Event:
         repetition_id: The repetition number (e.g., 0, 1, 2)
         success: Whether the task succeeded (for end events)
         elapsed_time: Time taken in seconds (for end events)
-        turns: Number of conversation turns (for end events)
+        rounds: Scenario-defined round count (for end events; None if N/A)
+        total_prompt_tokens: Sum of prompt tokens for the repetition
+        total_completion_tokens: Sum of completion tokens for the repetition
+        total_reasoning_tokens: Sum of reasoning tokens for the repetition
         metadata: Additional event-specific data
     """
 
@@ -47,7 +50,10 @@ class Event:
     repetition_id: Optional[int] = None
     success: Optional[bool] = None
     elapsed_time: Optional[float] = None
-    turns: Optional[int] = None
+    rounds: Optional[int] = None
+    total_prompt_tokens: Optional[int] = None
+    total_completion_tokens: Optional[int] = None
+    total_reasoning_tokens: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -59,7 +65,10 @@ class Event:
             "repetition_id": self.repetition_id,
             "success": self.success,
             "elapsed_time": self.elapsed_time,
-            "turns": self.turns,
+            "rounds": self.rounds,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_reasoning_tokens": self.total_reasoning_tokens,
             "metadata": self.metadata,
         }
 

@@ -4,7 +4,7 @@ Message protocol and base interfaces for multi-agent debate.
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -105,8 +105,46 @@ class DomainConfig(ABC):
     def extract_solution(self, response: str) -> str:
         pass
 
-    def format_solution_for_sharing(self, solution: str, debater_id: str) -> str:
-        return f"=== Solution from {debater_id} ===\n{solution}\n"
+    # Total budget (in characters) for ALL neighbor reasoning combined in a
+    # single refinement prompt. The orchestration layer (agents.py) checks
+    # the actual cumulative length per round and only triggers truncation
+    # when this budget is exceeded — by default neighbor reasoning passes
+    # through in full. ~8000 chars ≈ 2k tokens, which is small relative to
+    # any modern context window. Domains can raise or lower this.
+    SHARED_EXPLANATION_BUDGET_CHARS = 8000
+
+    def format_solution_for_sharing(
+        self,
+        solution: str,
+        explanation: str,
+        debater_id: str,
+        *,
+        max_chars: Optional[int] = None,
+    ) -> str:
+        """Format another debater's response for inclusion in the round-to-round
+        refinement prompt.
+
+        Per the canonical multi-agent-debate design pattern (Du et al. 2023;
+        AutoGen MAD docs), neighbors must see each other's *full reasoning*
+        between rounds — not just the extracted final answer — otherwise
+        debaters cannot meaningfully refine their position.
+
+        ``max_chars`` is None by default, meaning the full explanation is
+        included verbatim. The call site in ``agents.py`` decides when to
+        impose a per-neighbor cap based on the cumulative budget, so
+        truncation only fires when the total neighbor reasoning would
+        exceed ``SHARED_EXPLANATION_BUDGET_CHARS``.
+        """
+        reasoning = (explanation or "").strip()
+        if max_chars is not None and len(reasoning) > max_chars:
+            reasoning = reasoning[:max_chars] + "  ...[truncated]"
+        if reasoning:
+            return (
+                f"=== Response from {debater_id} ===\n"
+                f"Reasoning:\n{reasoning}\n\n"
+                f"Their answer: {solution}\n"
+            )
+        return f"=== Response from {debater_id} ===\nTheir answer: {solution}\n"
 
 
 class Judge(ABC):

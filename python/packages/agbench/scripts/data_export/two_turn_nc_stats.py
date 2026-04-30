@@ -84,9 +84,11 @@ def main():
                 times.append(float(elapsed))
 
                 success = rep_data.get("success", False)
-                turns = rep_data.get("turns", 0)
+                # Two-turn-nc setups define "round" as one coder->executor cycle;
+                # rounds == 1 means the task passed on the first coder turn.
+                rounds = rep_data.get("rounds") or 0
 
-                if success and turns <= 2:
+                if success and rounds <= 1:
                     turn1_pass += 1
                     e2e_pass_turn1.append(float(elapsed))
                 elif success:

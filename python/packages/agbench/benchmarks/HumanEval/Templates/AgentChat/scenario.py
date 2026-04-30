@@ -3,6 +3,7 @@ import os
 import time
 
 import yaml
+from agbench.scenario_logging import emit_llm_call, emit_run_summary
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.ui import Console
@@ -48,7 +49,7 @@ async def main() -> None:
     termination = TextMentionTermination(text="TERMINATE", sources=["executor"])
 
     # Define a team
-    agent_team = RoundRobinGroupChat([coder_agent, executor], max_turns=12, termination_condition=termination)
+    agent_team = RoundRobinGroupChat([coder_agent, executor], max_turns=2, termination_condition=termination)
 
     prompt = ""
     with open("prompt.txt", "rt") as fh:
@@ -68,7 +69,10 @@ async def main() -> None:
     end_time = time.time()
     print(f"AgentChat execution time: {end_time - start_time:.2f} seconds")
 
-    # Print per-turn token usage summary.
+    # Per-call LLM accounting. AgentChat doesn't wrap the model client, so
+    # we don't have per-call wall-clock durations — just token counts derived
+    # from each message's models_usage. Emit one [LLM_CALL] per LLM-produced
+    # message for the unified summary.
     turn = 0
     for msg in task_result.messages:
         if msg.models_usage is not None:
@@ -79,6 +83,21 @@ async def main() -> None:
                 f" completion_tokens={msg.models_usage.completion_tokens}"
                 f" reasoning_tokens={msg.models_usage.reasoning_tokens}"
             )
+            emit_llm_call(
+                agent=str(getattr(msg, "source", "coder")),
+                duration_s=None,
+                prompt_tokens=msg.models_usage.prompt_tokens,
+                completion_tokens=msg.models_usage.completion_tokens,
+                reasoning_tokens=msg.models_usage.reasoning_tokens,
+                turn=turn,
+            )
+
+    # Canonical end-of-run summary (parsed by run_cmd into result.json).
+    # A "round" in this scenario is one coder->executor cycle: count coder messages.
+    rounds = sum(
+        1 for m in task_result.messages if getattr(m, "source", None) == "coder"
+    )
+    emit_run_summary(task_result.messages, rounds=rounds)
 
 
 asyncio.run(main())

@@ -2,6 +2,7 @@ import asyncio
 import time
 
 import yaml
+from agbench.scenario_logging import emit_llm_call, emit_run_summary
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.ui import Console
@@ -23,8 +24,13 @@ async def run_turn(
     turn_name: str,
     model_client: ChatCompletionClient,
     task: str,
-) -> bool:
-    """Run a single coder+executor turn. Returns True if tests passed (TERMINATE seen)."""
+):
+    """Run a single coder+executor turn.
+
+    Returns ``(passed, messages)`` — the boolean is True iff the executor
+    emitted TERMINATE; ``messages`` is the list of agent messages produced
+    during this turn so the caller can aggregate token usage across turns.
+    """
     coder = MagenticOneCoderAgent(
         name=f"coder_{turn_name}",
         model_client=model_client,
@@ -48,7 +54,8 @@ async def run_turn(
     stream = team.run_stream(task=task)
     result = await Console(stream)
 
-    return result.stop_reason is not None and "Text 'TERMINATE' mentioned" in result.stop_reason
+    passed = result.stop_reason is not None and "Text 'TERMINATE' mentioned" in result.stop_reason
+    return passed, result.messages
 
 
 async def main() -> None:
@@ -78,14 +85,38 @@ async def main() -> None:
 ```
 """
 
-    # Run turns sequentially; stop early if tests pass
+    # Run turns sequentially; stop early if tests pass.
+    # Aggregate messages across all turns so token totals cover the whole run.
+    all_messages: list = []
+    rounds = 0
     for turn_name, client in turn_clients:
-        passed = await run_turn(turn_name, client, task)
+        passed, messages = await run_turn(turn_name, client, task)
+        all_messages.extend(messages)
+        # Each invocation of ``run_turn`` is one coder->executor cycle.
+        rounds += 1
+        # Emit one [LLM_CALL] per LLM-produced message in this turn so the
+        # per-agent summary distinguishes coder_turn1 / coder_turn2 / ...
+        for msg in messages:
+            if getattr(msg, "models_usage", None) is None:
+                continue
+            emit_llm_call(
+                agent=str(getattr(msg, "source", f"coder_{turn_name}")),
+                duration_s=None,
+                prompt_tokens=msg.models_usage.prompt_tokens,
+                completion_tokens=msg.models_usage.completion_tokens,
+                reasoning_tokens=msg.models_usage.reasoning_tokens,
+                turn=turn_name,
+            )
         if passed:
             break
 
     end_time = time.time()
     print(f"AgentChat execution time: {end_time - start_time:.2f} seconds")
+
+    # Canonical end-of-run summary parsed by run_cmd into result.json.
+    # A "round" here is one configured turn (coder+executor cycle), counting
+    # only those that actually ran before early-exit.
+    emit_run_summary(all_messages, rounds=rounds)
 
 
 asyncio.run(main())

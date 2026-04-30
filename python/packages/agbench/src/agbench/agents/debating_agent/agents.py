@@ -193,9 +193,34 @@ class Debater(RoutedAgent):
 
         if len(self._buffer[message.round]) >= self._num_neighbors:
             # Build refinement prompt
+            # Decide whether to truncate neighbor reasoning. Default is to
+            # pass the full explanation through; only truncate when the
+            # cumulative length across all neighbors would exceed the
+            # domain's per-prompt budget. When triggered, distribute the
+            # budget evenly across neighbors and log it so the degradation
+            # is visible in console_log.txt.
+            neighbors = self._buffer[message.round]
+            total_chars = sum(
+                len((r.explanation or "").strip()) for r in neighbors
+            )
+            budget = getattr(
+                self._domain_config, "SHARED_EXPLANATION_BUDGET_CHARS", None
+            )
+            per_neighbor_cap = None
+            if budget is not None and total_chars > budget and len(neighbors) > 0:
+                per_neighbor_cap = budget // len(neighbors)
+                print(
+                    f"[{self._debater_id}] [TRUNCATE] round={message.round + 1} "
+                    f"cumulative_neighbor_chars={total_chars} budget={budget} "
+                    f"neighbors={len(neighbors)} per_neighbor_cap={per_neighbor_cap}",
+                    flush=True,
+                )
+
             neighbor_solutions = "\n".join(
-                self._domain_config.format_solution_for_sharing(r.solution, r.debater_id)
-                for r in self._buffer[message.round]
+                self._domain_config.format_solution_for_sharing(
+                    r.solution, r.explanation, r.debater_id, max_chars=per_neighbor_cap
+                )
+                for r in neighbors
             )
             prompt = self._domain_config.get_refinement_prompt_template().format(
                 neighbor_solutions=neighbor_solutions,

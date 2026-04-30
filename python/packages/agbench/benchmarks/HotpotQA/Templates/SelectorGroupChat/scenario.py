@@ -24,6 +24,7 @@ def _ort_patched_init(self, *args, **kwargs):
     _ort_orig_init(self, *args, **kwargs)
 _ort.InferenceSession.__init__ = _ort_patched_init
 
+from agbench.scenario_logging import emit_llm_call, emit_run_summary
 from autogen_ext.agents.magentic_one import MagenticOneCoderAgent
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import MaxMessageTermination
@@ -120,6 +121,17 @@ async def main() -> None:
         "assistant":  {"pt": 0, "ct": 0, "calls": 0},
         "web_surfer": {"pt": 0, "ct": 0, "calls": 0},
     }
+    # Global token accumulator across every client used by this scenario.
+    # Captures debater + selector + termination + finalizer LLM calls so that
+    # ``emit_run_summary`` reports the whole-scenario totals.
+    global_usage = {"prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0}
+
+    def _add_global_usage(usage) -> None:
+        if usage is None:
+            return
+        global_usage["prompt_tokens"] += int(getattr(usage, "prompt_tokens", 0) or 0)
+        global_usage["completion_tokens"] += int(getattr(usage, "completion_tokens", 0) or 0)
+        global_usage["reasoning_tokens"] += int(getattr(usage, "reasoning_tokens", 0) or 0)
 
     def _instrument_orch(client, label_ref):
         _orig = client.create
@@ -135,27 +147,50 @@ async def main() -> None:
                 usage = getattr(result, "usage", None) if result is not None else None
                 pt = getattr(usage, "prompt_tokens", None) if usage else None
                 ct = getattr(usage, "completion_tokens", None) if usage else None
+                rt = getattr(usage, "reasoning_tokens", None) if usage else None
                 print(
                     f"[LATENCY] role=orchestrator label={label} duration_s={dt:.3f} "
                     f"prompt_tokens={pt} completion_tokens={ct}",
                     flush=True,
                 )
+                emit_llm_call(
+                    agent="orchestrator",
+                    duration_s=dt,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    reasoning_tokens=rt,
+                    label=label,
+                )
+                _add_global_usage(usage)
                 content = getattr(result, "content", None) if result is not None else None
                 if isinstance(content, str):
                     print(f"[ORCH {label}] {content}", flush=True)
         client.create = _timed
 
     def _instrument_client_accum(client, role):
-        """Wrap client.create to accumulate token counts for the active agent turn."""
+        """Wrap client.create to accumulate token counts for the active agent
+        turn AND emit one canonical [LLM_CALL] line per call so per-agent
+        cost is auditable in the end-of-run summary table."""
         _orig = client.create
         async def _timed(*args, **kwargs):
+            t0 = time.perf_counter()
             result = await _orig(*args, **kwargs)
+            dt = time.perf_counter() - t0
             usage = getattr(result, "usage", None)
             pt = getattr(usage, "prompt_tokens", 0) or 0 if usage else 0
             ct = getattr(usage, "completion_tokens", 0) or 0 if usage else 0
+            rt = getattr(usage, "reasoning_tokens", 0) or 0 if usage else 0
             agent_accum[role]["pt"] += pt
             agent_accum[role]["ct"] += ct
             agent_accum[role]["calls"] += 1
+            _add_global_usage(usage)
+            emit_llm_call(
+                agent=role,
+                duration_s=dt,
+                prompt_tokens=pt if usage is not None else None,
+                completion_tokens=ct if usage is not None else None,
+                reasoning_tokens=rt if usage is not None else None,
+            )
             return result
         client.create = _timed
 
@@ -399,6 +434,31 @@ If you are asked for a string, don't use articles or abbreviations (e.g. for cit
     print(f"Expected:    {expected_answer}")
     print(f"F1 Score:    {f1:.4f}")
     print(f"Exact Match: {em}")
+
+    # Canonical end-of-run summary parsed by run_cmd into result.json.
+    # A "round" in SelectorGroupChat is one selector->agent speaker dispatch.
+    # Count messages produced by the team agents (excluding the user task).
+    agent_sources = {"Assistant", "ComputerTerminal", "WebSurfer"}
+    rounds = sum(
+        1 for m in result.messages if getattr(m, "source", None) in agent_sources
+    )
+
+    class _Usage:
+        def __init__(self, p, c, r):
+            self.prompt_tokens = p
+            self.completion_tokens = c
+            self.reasoning_tokens = r
+
+    emit_run_summary(
+        [
+            _Usage(
+                global_usage["prompt_tokens"],
+                global_usage["completion_tokens"],
+                global_usage["reasoning_tokens"],
+            )
+        ],
+        rounds=rounds,
+    )
 
 
 class LLMTermination(TerminationCondition):

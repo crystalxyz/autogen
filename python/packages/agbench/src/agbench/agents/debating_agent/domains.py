@@ -44,12 +44,13 @@ When reviewing other solutions:
 Provide your complete solution as a code block."""
 
     def get_refinement_prompt_template(self) -> str:
-        return f"""Here are solutions from other debaters:
+        return f"""These are responses from other debaters — their reasoning and proposed solutions:
 
 {{neighbor_solutions}}
 
-Now, considering these other solutions, provide your improved solution for the original task.
-Learn from any good ideas you see, fix any bugs you notice, and combine the best approaches.
+Using these responses as additional information, refine your own solution to the original task.
+Pay attention to their reasoning, not just their final code: borrow good ideas, fix bugs you notice,
+and resolve disagreements with sound justification.
 
 Original task:
 ```{self._language}
@@ -80,8 +81,22 @@ Round {{round}} - Provide your complete, improved solution as a code block."""
 
         return response.strip()
 
-    def format_solution_for_sharing(self, solution: str, debater_id: str) -> str:
-        return f"=== Solution from {debater_id} ===\n```{self._language}\n{solution}\n```\n"
+    def format_solution_for_sharing(
+        self, solution: str, explanation: str, debater_id: str, *, max_chars=None
+    ) -> str:
+        # For coding, the extracted solution IS the full code block, but the
+        # explanation often contains design rationale and bug-spotting that
+        # peers can learn from. Include both; truncation only fires when
+        # the orchestrator has computed that cumulative neighbor reasoning
+        # exceeds ``SHARED_EXPLANATION_BUDGET_CHARS`` (max_chars set).
+        reasoning = (explanation or "").strip()
+        if max_chars is not None and len(reasoning) > max_chars:
+            reasoning = reasoning[:max_chars] + "  ...[truncated]"
+        head = f"=== Response from {debater_id} ==="
+        code_block = f"```{self._language}\n{solution}\n```"
+        if reasoning:
+            return f"{head}\nReasoning:\n{reasoning}\n\nTheir solution:\n{code_block}\n"
+        return f"{head}\nTheir solution:\n{code_block}\n"
 
 
 class MathDomainConfig(DomainConfig):
@@ -121,11 +136,13 @@ When reviewing other solutions:
 Show your reasoning step by step, then provide your final answer as: {self._answer_format}"""
 
     def get_refinement_prompt_template(self) -> str:
-        return f"""Here are solutions from other debaters:
+        return f"""These are responses from other debaters — their reasoning and final answers:
 
 {{neighbor_solutions}}
 
-Review these solutions carefully and provide your improved solution.
+Using these responses as additional information, reconsider the problem and provide your refined answer.
+Check their arithmetic and logic, identify any disagreements with their reasoning, and ground your
+final answer in evidence from the working — not just majority voting on the bottom line.
 
 Original problem:
 {{original_prompt}}
@@ -190,11 +207,14 @@ When reviewing other solutions:
 Think through this step by step, then provide your final answer on a line starting with: ANSWER:"""
 
     def get_refinement_prompt_template(self) -> str:
-        return """Here are answers from other debaters:
+        return """These are responses from other debaters — their reasoning and proposed answers:
 
 {neighbor_solutions}
 
-Review these perspectives and provide your refined answer.
+Using these responses as additional information, reconsider the question and provide your refined answer.
+Engage with their reasoning, not just their bottom-line answer: assess whether the evidence and logic
+support each candidate, and resolve disagreements explicitly. Do not anchor on majority opinion if the
+underlying reasoning is weak.
 
 Original question:
 {original_prompt}
