@@ -1,9 +1,12 @@
 import asyncio
+import json
 import os
 import time
 import warnings
 import yaml
+from types import SimpleNamespace
 
+from agbench.scenario_logging import emit_llm_call, emit_run_summary, get_llm_call_records
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import ThoughtEvent, ToolCallExecutionEvent, ToolCallRequestEvent
@@ -166,9 +169,10 @@ async def main() -> None:
     client_config_key = "qwen3_client"
     model_client = ChatCompletionClient.load_component(config[client_config_key])
 
-    # Per-call latency/token instrumentation (same [LATENCY] format as the other
-    # GAIA templates). Emits one parseable line per create() call:
-    #   [LATENCY] role=<role> label=<label> duration_s=<f> prompt_tokens=<int|None> completion_tokens=<int|None>
+    # Per-call token/latency instrumentation via the canonical scenario_logging
+    # API. Each create() emits one [LLM_CALL] line and stashes a record; the
+    # end-of-run emit_run_summary() aggregates these into the [TOKENS_TOTAL] /
+    # [ROUNDS_TOTAL] lines that run_cmd.py parses into result.json.
     def _instrument(client, role):
         _orig_create = client.create
 
@@ -181,12 +185,13 @@ async def main() -> None:
             finally:
                 dt = time.perf_counter() - t0
                 usage = getattr(result, "usage", None) if result is not None else None
-                pt = getattr(usage, "prompt_tokens", None) if usage else None
-                ct = getattr(usage, "completion_tokens", None) if usage else None
-                print(
-                    f"[LATENCY] role={role} label={role} duration_s={dt:.3f} "
-                    f"prompt_tokens={pt} completion_tokens={ct}",
-                    flush=True,
+                emit_llm_call(
+                    agent=role,
+                    duration_s=dt,
+                    prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+                    completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+                    reasoning_tokens=getattr(usage, "reasoning_tokens", None) if usage else None,
+                    role=role,
                 )
 
         client.create = _timed_create
@@ -229,78 +234,81 @@ async def main() -> None:
         filename_prompt = f"The question is about a file, document or image, which can be accessed by the filename '{filename}' in the current working directory."
     task = f"{prompt}\n\n{filename_prompt}"
 
-    # Run the task with latency tracking, writing to console_log.txt
+    # Run the task with latency tracking. Print to stdout only — agbench captures
+    # the scenario's stdout into console_log.txt; opening that file here as well
+    # would race the two writers and truncate the log.
     # Steps match agent -> tool cycles: each ToolCallRequestEvent starts a new step,
     # and the corresponding ToolCallExecutionEvent completes it.
     stream = agent.run_stream(task=task.strip())
     step = 0
     last_time = time.time()
-    with open("console_log.txt", "w") as log:
 
-        def log_print(text: str = "") -> None:
-            """Print to both stdout and log file."""
-            print(text)
-            log.write(text + "\n")
-            log.flush()
+    def log_print(text: str = "") -> None:
+        print(text, flush=True)
 
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
+    def log_tokens(msg: object) -> None:
+        """Log token usage if available on the message."""
+        usage = getattr(msg, "models_usage", None)
+        if usage is not None:
+            log_print(f"[Tokens] prompt={usage.prompt_tokens}, completion={usage.completion_tokens}")
 
-        def log_tokens(msg: object) -> None:
-            """Log token usage if available on the message."""
-            nonlocal total_prompt_tokens, total_completion_tokens
-            usage = getattr(msg, "models_usage", None)
-            if usage is not None:
-                total_prompt_tokens += usage.prompt_tokens
-                total_completion_tokens += usage.completion_tokens
-                log_print(f"[Tokens] prompt={usage.prompt_tokens}, completion={usage.completion_tokens}")
+    step_incremented = False  # Track whether step was already incremented for this LLM call
 
-        step_incremented = False  # Track whether step was already incremented for this LLM call
-
-        async for message in stream:
-            now = time.time()
-            latency = now - last_time
-            if isinstance(message, TaskResult):
-                log_print(f"\n{'=' * 60}")
-                log_print(f"[DONE] Total steps: {step}")
-                log_print(f"[Total Tokens] prompt={total_prompt_tokens}, completion={total_completion_tokens}")
-                break
-            if isinstance(message, ThoughtEvent):
-                # ThoughtEvent starts a new LLM call — increment step
+    async for message in stream:
+        now = time.time()
+        latency = now - last_time
+        if isinstance(message, TaskResult):
+            log_print(f"\n{'=' * 60}")
+            log_print(f"[DONE] Total steps: {step}")
+            break
+        if isinstance(message, ThoughtEvent):
+            # ThoughtEvent starts a new LLM call — increment step
+            step += 1
+            step_incremented = True
+            content = str(message.content)
+            log_print(f"\n{'=' * 60}")
+            log_print(f"[Step {step}] Thought")
+            log_print(f"[Latency] {latency:.2f}s")
+            log_tokens(message)
+            log_print(f"[Content] {content}")
+        elif isinstance(message, ToolCallRequestEvent):
+            if not step_incremented:
+                # No ThoughtEvent preceded this (non-reasoning model) — increment step
                 step += 1
-                step_incremented = True
-                content = str(message.content)
-                log_print(f"\n{'=' * 60}")
-                log_print(f"[Step {step}] Thought")
-                log_print(f"[Latency] {latency:.2f}s")
-                log_tokens(message)
-                log_print(f"[Content] {content}")
-            elif isinstance(message, ToolCallRequestEvent):
-                if not step_incremented:
-                    # No ThoughtEvent preceded this (non-reasoning model) — increment step
-                    step += 1
-                step_incremented = False
-                log_print(f"\n{'=' * 60}")
-                log_print(f"[Step {step}] Agent -> Tool request")
-                log_print(f"[Latency] {latency:.2f}s")
-                log_tokens(message)
-                for tc in message.content:
-                    log_print(f"  Tool: {tc.name}({tc.arguments})")
-            elif isinstance(message, ToolCallExecutionEvent):
-                log_print(f"\n{'=' * 60}")
-                log_print(f"[Step {step}] Tool -> Result")
-                log_print(f"[Latency] {latency:.2f}s")
-                for result in message.content:
-                    log_print(f"  [{result.call_id}] {result.content}")
-            else:
-                msg_type = type(message).__name__
-                content = str(getattr(message, "content", ""))
-                log_print(f"\n{'=' * 60}")
-                log_print(f"[Step {step}] {msg_type}")
-                log_print(f"[Latency] {latency:.2f}s")
-                log_tokens(message)
-                log_print(f"[Content] {content}")
-            last_time = now
+            step_incremented = False
+            log_print(f"\n{'=' * 60}")
+            log_print(f"[Step {step}] Agent -> Tool request")
+            log_print(f"[Latency] {latency:.2f}s")
+            log_tokens(message)
+            for tc in message.content:
+                log_print(f"  Tool: {tc.name}({tc.arguments})")
+        elif isinstance(message, ToolCallExecutionEvent):
+            log_print(f"\n{'=' * 60}")
+            log_print(f"[Step {step}] Tool -> Result")
+            log_print(f"[Latency] {latency:.2f}s")
+            for result in message.content:
+                log_print(f"  [{result.call_id}] {result.content}")
+        else:
+            msg_type = type(message).__name__
+            content = str(getattr(message, "content", ""))
+            log_print(f"\n{'=' * 60}")
+            log_print(f"[Step {step}] {msg_type}")
+            log_print(f"[Latency] {latency:.2f}s")
+            log_tokens(message)
+            log_print(f"[Content] {content}")
+        last_time = now
+
+    # Per-call records -> llm_call.json sidecar; aggregated totals + round count
+    # -> [TOKENS_TOTAL] / [ROUNDS_TOTAL] lines parsed by run_cmd into result.json.
+    records = get_llm_call_records()
+    with open("llm_call.json", "w") as f:
+        json.dump(records, f, indent=2)
+    totals = SimpleNamespace(
+        prompt_tokens=sum(int(r.get("prompt_tokens") or 0) for r in records),
+        completion_tokens=sum(int(r.get("completion_tokens") or 0) for r in records),
+        reasoning_tokens=sum(int(r.get("reasoning_tokens") or 0) for r in records),
+    )
+    emit_run_summary([totals], rounds=step)
 
 
 if __name__ == "__main__":

@@ -2,11 +2,15 @@ import time
 _script_start = time.time()
 
 import asyncio
+import json
 import logging
 import os
 import yaml
 import warnings
+from types import SimpleNamespace
 from typing import Sequence
+
+from agbench.scenario_logging import emit_llm_call, emit_run_summary, get_llm_call_records
 
 # Limit onnxruntime to 1 thread to avoid pthread_setaffinity_np errors
 # under Slurm cgroup CPU restrictions. Must be done before any onnxruntime import.
@@ -59,9 +63,10 @@ async def main() -> None:
     web_surfer_client = ChatCompletionClient.load_component(config["web_surfer_client"])
     file_surfer_client = ChatCompletionClient.load_component(config["file_surfer_client"])
 
-    # Unified latency instrumentation for all model clients.
-    # Emits one line per create() call in a parseable format:
-    #   [LATENCY] role=<role> label=<label> duration_s=<f> prompt_tokens=<int|None> completion_tokens=<int|None>
+    # Per-call token/latency instrumentation via the canonical scenario_logging
+    # API. Each create() emits one [LLM_CALL] line and stashes a record; the
+    # end-of-run emit_run_summary() aggregates these into the [TOKENS_TOTAL] /
+    # [ROUNDS_TOTAL] lines that run_cmd.py parses into result.json.
     # For the orchestrator the label is flipped between selector/termination/finalizer
     # via orchestrator_call_label; agent clients use a fixed label equal to their role.
     orchestrator_call_label = {"value": "selector"}
@@ -79,12 +84,14 @@ async def main() -> None:
             finally:
                 dt = time.perf_counter() - t0
                 usage = getattr(result, "usage", None) if result is not None else None
-                pt = getattr(usage, "prompt_tokens", None) if usage else None
-                ct = getattr(usage, "completion_tokens", None) if usage else None
-                print(
-                    f"[LATENCY] role={role} label={label} duration_s={dt:.3f} "
-                    f"prompt_tokens={pt} completion_tokens={ct}",
-                    flush=True,
+                emit_llm_call(
+                    agent=label,
+                    duration_s=dt,
+                    prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+                    completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+                    reasoning_tokens=getattr(usage, "reasoning_tokens", None) if usage else None,
+                    role=role,
+                    label=label,
                 )
 
         client.create = _timed_create
@@ -189,6 +196,19 @@ If you are asked for a comma separated list, apply the above rules depending on 
     print(response.content, flush=True)
     print(f"\n[TIMING] Final answer inference: {time.time() - final_start:.2f}s", flush=True)
     print(f"[TIMING] Total scenario time: {time.time() - task_start:.2f}s", flush=True)
+
+    # Per-call records -> llm_call.json sidecar; aggregated totals + round count
+    # -> [TOKENS_TOTAL] / [ROUNDS_TOTAL] lines parsed by run_cmd into result.json.
+    records = get_llm_call_records()
+    with open("llm_call.json", "w") as f:
+        json.dump(records, f, indent=2)
+    totals = SimpleNamespace(
+        prompt_tokens=sum(int(r.get("prompt_tokens") or 0) for r in records),
+        completion_tokens=sum(int(r.get("completion_tokens") or 0) for r in records),
+        reasoning_tokens=sum(int(r.get("reasoning_tokens") or 0) for r in records),
+    )
+    rounds = sum(1 for m in result.messages if getattr(m, "source", None) not in (None, "user"))
+    emit_run_summary([totals], rounds=rounds)
 
 
 class LLMTermination(TerminationCondition):

@@ -1,8 +1,11 @@
 import asyncio
+import json
 import os
 import time
 import yaml
 import warnings
+from types import SimpleNamespace
+from agbench.scenario_logging import emit_llm_call, emit_run_summary, get_llm_call_records
 from autogen_ext.agents.magentic_one import MagenticOneCoderAgent
 from autogen_agentchat.teams import MagenticOneGroupChat
 from autogen_agentchat.ui import Console
@@ -30,10 +33,10 @@ async def main() -> None:
     web_surfer_client = ChatCompletionClient.load_component(config["web_surfer_client"])
     file_surfer_client = ChatCompletionClient.load_component(config["file_surfer_client"])
 
-    # Unified latency/token instrumentation for all model clients (same format as
-    # the SelectorGroupChat template). Emits one parseable line per create() call:
-    #   [LATENCY] role=<role> label=<label> duration_s=<f> prompt_tokens=<int|None> completion_tokens=<int|None>
-    # Each orchestrator call marks a round boundary; downstream scripts parse these lines.
+    # Per-call token/latency instrumentation via the canonical scenario_logging
+    # API. Each create() emits one [LLM_CALL] line and stashes a record; the
+    # end-of-run emit_run_summary() aggregates these into the [TOKENS_TOTAL] /
+    # [ROUNDS_TOTAL] lines that run_cmd.py parses into result.json.
     def _instrument(client, role):
         _orig_create = client.create
 
@@ -46,12 +49,13 @@ async def main() -> None:
             finally:
                 dt = time.perf_counter() - t0
                 usage = getattr(result, "usage", None) if result is not None else None
-                pt = getattr(usage, "prompt_tokens", None) if usage else None
-                ct = getattr(usage, "completion_tokens", None) if usage else None
-                print(
-                    f"[LATENCY] role={role} label={role} duration_s={dt:.3f} "
-                    f"prompt_tokens={pt} completion_tokens={ct}",
-                    flush=True,
+                emit_llm_call(
+                    agent=role,
+                    duration_s=dt,
+                    prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+                    completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+                    reasoning_tokens=getattr(usage, "reasoning_tokens", None) if usage else None,
+                    role=role,
                 )
 
         client.create = _timed_create
@@ -119,8 +123,6 @@ If you are asked for a comma separated list, apply the above rules depending on 
     stream = team.run_stream(task=task.strip())
 
     round_idx = 0
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
     last_time = time.time()
     async for message in stream:
         now = time.time()
@@ -129,10 +131,6 @@ If you are asked for a comma separated list, apply the above rules depending on 
         if isinstance(message, TaskResult):
             print(f"\n{'=' * 60}", flush=True)
             print(f"[DONE] Total rounds: {round_idx}", flush=True)
-            print(
-                f"[Total Tokens] prompt={total_prompt_tokens} completion={total_completion_tokens}",
-                flush=True,
-            )
             print(f"[TIMING] Total scenario time: {time.time() - task_start:.2f}s", flush=True)
             break
 
@@ -141,16 +139,24 @@ If you are asked for a comma separated list, apply the above rules depending on 
         usage = getattr(message, "models_usage", None)
         pt = getattr(usage, "prompt_tokens", None) if usage else None
         ct = getattr(usage, "completion_tokens", None) if usage else None
-        if pt is not None:
-            total_prompt_tokens += pt
-        if ct is not None:
-            total_completion_tokens += ct
         print(f"\n{'=' * 60}", flush=True)
         print(f"[Round {round_idx}] source={source}", flush=True)
         print(f"[Latency] {latency:.2f}s", flush=True)
         print(f"[Tokens] prompt={pt} completion={ct}", flush=True)
         print(f"[Content] {str(getattr(message, 'content', ''))}", flush=True)
         last_time = now
+
+    # Per-call records -> llm_call.json sidecar; aggregated totals + round count
+    # -> [TOKENS_TOTAL] / [ROUNDS_TOTAL] lines parsed by run_cmd into result.json.
+    records = get_llm_call_records()
+    with open("llm_call.json", "w") as f:
+        json.dump(records, f, indent=2)
+    totals = SimpleNamespace(
+        prompt_tokens=sum(int(r.get("prompt_tokens") or 0) for r in records),
+        completion_tokens=sum(int(r.get("completion_tokens") or 0) for r in records),
+        reasoning_tokens=sum(int(r.get("reasoning_tokens") or 0) for r in records),
+    )
+    emit_run_summary([totals], rounds=round_idx)
 
 if __name__ == "__main__":
     asyncio.run(main())

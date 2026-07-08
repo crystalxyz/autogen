@@ -10,8 +10,10 @@ import builtins
 import shutil
 import json
 from datetime import datetime
+from types import SimpleNamespace
 from typing import List, Optional, Dict
 from collections import deque
+from agbench.scenario_logging import emit_llm_call, emit_run_summary, get_llm_call_records
 from autogen_agentchat import TRACE_LOGGER_NAME as AGENTCHAT_TRACE_LOGGER_NAME, EVENT_LOGGER_NAME as AGENTCHAT_EVENT_LOGGER_NAME
 from autogen_core import TRACE_LOGGER_NAME as CORE_TRACE_LOGGER_NAME, EVENT_LOGGER_NAME as CORE_EVENT_LOGGER_NAME
 from autogen_ext.agents.magentic_one import MagenticOneCoderAgent
@@ -276,9 +278,10 @@ async def main(num_teams: int, num_answers: int) -> None:
     web_surfer_client = ChatCompletionClient.load_component(config["web_surfer_client"])
     file_surfer_client = ChatCompletionClient.load_component(config["file_surfer_client"])
 
-    # Per-call latency/token instrumentation (same [LATENCY] format as the other
-    # GAIA templates). Emits one parseable line per create() call:
-    #   [LATENCY] role=<role> label=<label> duration_s=<f> prompt_tokens=<int|None> completion_tokens=<int|None>
+    # Per-call token/latency instrumentation via the canonical scenario_logging
+    # API. Each create() emits one [LLM_CALL] line and stashes a record; the
+    # end-of-run emit_run_summary() aggregates these into the [TOKENS_TOTAL] /
+    # [ROUNDS_TOTAL] lines that run_cmd.py parses into result.json.
     # print() is monkey-patched to tee_print, so lines also route to each team's log.
     def _instrument(client, role):
         _orig_create = client.create
@@ -292,12 +295,13 @@ async def main(num_teams: int, num_answers: int) -> None:
             finally:
                 dt = time.perf_counter() - t0
                 usage = getattr(result, "usage", None) if result is not None else None
-                pt = getattr(usage, "prompt_tokens", None) if usage else None
-                ct = getattr(usage, "completion_tokens", None) if usage else None
-                print(
-                    f"[LATENCY] role={role} label={role} duration_s={dt:.3f} "
-                    f"prompt_tokens={pt} completion_tokens={ct}",
-                    flush=True,
+                emit_llm_call(
+                    agent=role,
+                    duration_s=dt,
+                    prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+                    completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+                    reasoning_tokens=getattr(usage, "reasoning_tokens", None) if usage else None,
+                    role=role,
                 )
 
         client.create = _timed_create
@@ -401,8 +405,25 @@ If you are asked for a comma separated list, apply the above rules depending on 
     await asyncio.gather(*async_tasks, return_exceptions=True)
 
     print("len(team_results):", len(team_results))
+    # Count rounds across all teams BEFORE aggregation (it pops team messages).
+    rounds = sum(
+        sum(1 for m in tr.messages if getattr(m, "source", None) not in (None, "user"))
+        for tr in team_results.values()
+    )
     final_answer = await aggregate_final_answer(prompt, orchestrator_client, team_results)
     print(final_answer)
+
+    # Per-call records -> llm_call.json sidecar; aggregated totals + round count
+    # -> [TOKENS_TOTAL] / [ROUNDS_TOTAL] lines parsed by run_cmd into result.json.
+    records = get_llm_call_records()
+    with open("llm_call.json", "w") as f:
+        json.dump(records, f, indent=2)
+    totals = SimpleNamespace(
+        prompt_tokens=sum(int(r.get("prompt_tokens") or 0) for r in records),
+        completion_tokens=sum(int(r.get("completion_tokens") or 0) for r in records),
+        reasoning_tokens=sum(int(r.get("reasoning_tokens") or 0) for r in records),
+    )
+    emit_run_summary([totals], rounds=rounds)
 
 if __name__ == "__main__":
     num_teams = 3
