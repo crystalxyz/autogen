@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import time
 import logging
 import yaml
 import warnings
@@ -274,6 +275,37 @@ async def main(num_teams: int, num_answers: int) -> None:
     coder_client = ChatCompletionClient.load_component(config["coder_client"])
     web_surfer_client = ChatCompletionClient.load_component(config["web_surfer_client"])
     file_surfer_client = ChatCompletionClient.load_component(config["file_surfer_client"])
+
+    # Per-call latency/token instrumentation (same [LATENCY] format as the other
+    # GAIA templates). Emits one parseable line per create() call:
+    #   [LATENCY] role=<role> label=<label> duration_s=<f> prompt_tokens=<int|None> completion_tokens=<int|None>
+    # print() is monkey-patched to tee_print, so lines also route to each team's log.
+    def _instrument(client, role):
+        _orig_create = client.create
+
+        async def _timed_create(*args, **kwargs):
+            t0 = time.perf_counter()
+            result = None
+            try:
+                result = await _orig_create(*args, **kwargs)
+                return result
+            finally:
+                dt = time.perf_counter() - t0
+                usage = getattr(result, "usage", None) if result is not None else None
+                pt = getattr(usage, "prompt_tokens", None) if usage else None
+                ct = getattr(usage, "completion_tokens", None) if usage else None
+                print(
+                    f"[LATENCY] role={role} label={role} duration_s={dt:.3f} "
+                    f"prompt_tokens={pt} completion_tokens={ct}",
+                    flush=True,
+                )
+
+        client.create = _timed_create
+
+    _instrument(orchestrator_client, role="orchestrator")
+    _instrument(coder_client, role="coder")
+    _instrument(web_surfer_client, role="web_surfer")
+    _instrument(file_surfer_client, role="file_surfer")
 
     # Read the prompt
     prompt = ""

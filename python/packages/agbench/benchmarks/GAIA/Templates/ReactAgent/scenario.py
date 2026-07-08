@@ -69,7 +69,7 @@ def visit_url(url: str) -> str:
 
         # Use markitdown for HTML-to-markdown conversion (same approach as MultimodalWebSurfer)
         # try:
-        from markitdown import MarkItDown                                                     `
+        from markitdown import MarkItDown
 
         converter = MarkItDown()
         result = converter.convert_stream(io.BytesIO(resp.content), file_extension=".html", url=url)
@@ -165,6 +165,33 @@ async def main() -> None:
     # Use react_agent_client if available, otherwise fall back to orchestrator_client
     client_config_key = "qwen3_client"
     model_client = ChatCompletionClient.load_component(config[client_config_key])
+
+    # Per-call latency/token instrumentation (same [LATENCY] format as the other
+    # GAIA templates). Emits one parseable line per create() call:
+    #   [LATENCY] role=<role> label=<label> duration_s=<f> prompt_tokens=<int|None> completion_tokens=<int|None>
+    def _instrument(client, role):
+        _orig_create = client.create
+
+        async def _timed_create(*args, **kwargs):
+            t0 = time.perf_counter()
+            result = None
+            try:
+                result = await _orig_create(*args, **kwargs)
+                return result
+            finally:
+                dt = time.perf_counter() - t0
+                usage = getattr(result, "usage", None) if result is not None else None
+                pt = getattr(usage, "prompt_tokens", None) if usage else None
+                ct = getattr(usage, "completion_tokens", None) if usage else None
+                print(
+                    f"[LATENCY] role={role} label={role} duration_s={dt:.3f} "
+                    f"prompt_tokens={pt} completion_tokens={ct}",
+                    flush=True,
+                )
+
+        client.create = _timed_create
+
+    _instrument(model_client, role="react_agent")
 
     # Read the prompt
     prompt = ""
