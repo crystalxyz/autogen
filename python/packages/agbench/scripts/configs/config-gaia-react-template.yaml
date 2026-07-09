@@ -1,0 +1,19 @@
+# Config template for GAIA ReactAgent (single-model)
+# ReactAgent scenario.py reads config["qwen3_client"]; share via anchor.
+
+model_config: &client
+  provider: autogen_ext.models.openai.OpenAIChatCompletionClient
+  config:
+    model: placeholder
+    base_url: http://0.0.0.0:40023/v1
+    api_key: EMPTY
+    stream_options:
+      include_usage: true
+    model_info:
+      family: Qwen
+      vision: false
+      function_calling: true
+      json_output: true
+      structured_output: true
+
+qwen3_client: *client
